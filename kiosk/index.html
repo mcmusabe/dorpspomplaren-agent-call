@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connect-Smart Voice Kiosk</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="kiosk-container">
+        <!-- Header met logo -->
+        <header class="kiosk-header">
+            <img src="assets/logo.png" alt="Connect-Smart" class="logo">
+            <!-- Mute knop -->
+            <button class="mute-button" id="muteButton" onclick="toggleMute()">
+                <span>🔊</span>
+                <span>MUTE</span>
+            </button>
+        </header>
+
+        <!-- Assistant Status Indicator -->
+        <div class="assistant-status" id="assistantStatus">
+            <span class="pulse-dot"></span>
+            <span id="statusLabel">Lisa is klaar</span>
+        </div>
+
+        <!-- Waveform visualisatie -->
+        <div class="waveform-container">
+            <div class="waveform" id="waveform">
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+                <div class="wave-bar"></div>
+            </div>
+        </div>
+
+        <!-- Status tekst -->
+        <div class="status-text" id="statusText">
+            PLAATS JE BESTELLING ALS JE KLAAR BENT
+        </div>
+
+        <!-- Main content: Transcript en Order naast elkaar -->
+        <div class="main-content">
+            <!-- Transcriptie box -->
+            <div class="transcript-container" id="transcriptContainer">
+                <div class="section-header">
+                    <span class="section-icon">💬</span>
+                    <span>Conversatie</span>
+                </div>
+                <div class="transcript-box" id="transcriptBox">
+                    <div class="transcript-placeholder">
+                        Hier verschijnt de conversatie...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Order samenvatting panel -->
+            <div class="order-panel" id="orderPanel">
+                <div class="section-header">
+                    <span class="section-icon">🛒</span>
+                    <span>Bestelling</span>
+                </div>
+                <ul class="order-items" id="orderItems">
+                    <li class="empty-order">Nog geen items</li>
+                </ul>
+                <div class="order-total" id="orderTotal">Totaal: €0.00</div>
+            </div>
+        </div>
+
+        <!-- Call button -->
+        <button class="call-button" id="callButton" onclick="toggleCall()">
+            <span class="button-icon" id="buttonIcon">🎤</span>
+            <span class="button-text" id="buttonText">START BESTELLING</span>
+        </button>
+
+        <!-- Promo banner -->
+        <div class="promo-banner">
+            <div class="promo-label">PROBEER ONZE</div>
+            <div class="promo-title">FRIET SPECIAAL!</div>
+            <div class="promo-items">
+                <span class="promo-item">🍟</span>
+                <span class="promo-item">🍔</span>
+                <span class="promo-item">🥤</span>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="kiosk-footer">
+            <span>Powered by</span>
+            <span class="footer-brand">Connect-Smart</span>
+            <span>integration & automation</span>
+        </footer>
+    </div>
+
+    <!-- VAPI Web SDK - Script Tag Methode -->
+    <script>
+        var vapiInstance = null;
+        const ASSISTANT_ID = "d775bdce-8499-45e6-90d6-813102706954";
+        const API_KEY = "66ce61e6-4711-4e6d-a4b8-2c1f87f339ba";
+
+        (function (d, t) {
+            var g = document.createElement(t),
+                s = d.getElementsByTagName(t)[0];
+            g.src = "https://cdn.jsdelivr.net/gh/VapiAI/html-script-tag@latest/dist/assets/index.js";
+            g.defer = true;
+            g.async = true;
+            s.parentNode.insertBefore(g, s);
+
+            g.onload = function () {
+                console.log('VAPI SDK geladen');
+                window.vapiSDKLoaded = true;
+                if (typeof initVapi === 'function') {
+                    initVapi();
+                }
+            };
+        })(document, "script");
+    </script>
+    <script src="app.js"></script>
+</body>
+</html>
