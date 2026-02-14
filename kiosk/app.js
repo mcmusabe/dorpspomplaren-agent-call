@@ -26,6 +26,59 @@ let isMuted = false;
 let transcriptMessages = [];
 let currentOrder = [];
 let orderTotalAmount = 0;
+let vapiInitialized = false;
+let listenersAttached = false;
+const toolCallNameById = new Map();
+const priceLookupCache = new Map();
+const WEBHOOK_BASE_URL = 'https://dorpspomp-webhook-production.up.railway.app';
+let currentVapiCallId = null;
+let cartSyncIntervalId = null;
+const CART_SYNC_INTERVAL_MS = 1200;
+const ASSISTANT_MERGE_WINDOW_MS = 6000;
+const ASSISTANT_MAX_MERGED_LENGTH = 420;
+
+function setCurrentVapiCallId(callId) {
+    if (typeof callId !== 'string') return;
+    const trimmed = callId.trim();
+    if (!trimmed) return;
+    currentVapiCallId = trimmed;
+}
+
+async function syncCartFromServer() {
+    if (!isCallActive || !currentVapiCallId) return;
+    if (currentOrder.length > 0) return;
+
+    try {
+        const response = await fetch(`${WEBHOOK_BASE_URL}/tools/get_cart`, {
+            headers: {
+                'x-vapi-call-id': currentVapiCallId
+            }
+        });
+
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!Array.isArray(data?.items)) return;
+        if (data.items.length === 0) return;
+        updateOrderDisplay(data.items, Number(data.total || 0));
+    } catch (error) {
+        console.log('Cart sync failed:', error);
+    }
+}
+
+function startCartSync() {
+    stopCartSync();
+    void syncCartFromServer();
+    cartSyncIntervalId = setInterval(() => {
+        void syncCartFromServer();
+    }, CART_SYNC_INTERVAL_MS);
+}
+
+function stopCartSync() {
+    if (cartSyncIntervalId) {
+        clearInterval(cartSyncIntervalId);
+        cartSyncIntervalId = null;
+    }
+}
 
 // ============================================
 // VAPI INITIALISATIE
@@ -37,6 +90,12 @@ function initVapi() {
         console.error('VAPI SDK not loaded yet');
         addConnectionStatus('disconnected');
         statusText.textContent = 'SDK NIET GELADEN';
+        return;
+    }
+
+    // Voorkom dubbele initialisatie (DOMContentLoaded + SDK onload)
+    if (vapiInitialized && window.vapiInstance) {
+        console.log('VAPI already initialized, skipping');
         return;
     }
 
@@ -60,6 +119,7 @@ function initVapi() {
         addConnectionStatus('connected');
         statusText.textContent = 'PLAATS JE BESTELLING ALS JE KLAAR BENT';
         updateAssistantStatus('idle', 'Lisa is klaar');
+        vapiInitialized = true;
 
         console.log('VAPI initialized successfully');
 
@@ -80,15 +140,23 @@ function setupEventListeners() {
         return;
     }
 
+    if (listenersAttached) {
+        console.log('Event listeners already attached, skipping');
+        return;
+    }
+
     console.log('Setting up event listeners...');
 
     // Call gestart
-    vapi.on('call-start', () => {
+    vapi.on('call-start', (call) => {
         console.log('Call started');
         isCallActive = true;
+        setCurrentVapiCallId(call?.id || call?.call?.id);
+        toolCallNameById.clear();
         updateUI('active');
         clearTranscript();
         clearOrder();
+        startCartSync();
         addSystemMessage('Gesprek gestart...');
         updateAssistantStatus('listening', 'Lisa luistert...');
     });
@@ -98,6 +166,8 @@ function setupEventListeners() {
         console.log('Call ended');
         isCallActive = false;
         isMuted = false;
+        currentVapiCallId = null;
+        stopCartSync();
         updateUI('idle');
         addSystemMessage('Gesprek beëindigd');
         updateAssistantStatus('idle', 'Lisa is klaar');
@@ -131,13 +201,15 @@ function setupEventListeners() {
     // Error handling
     vapi.on('error', (error) => {
         console.error('VAPI Error:', error);
-        addSystemMessage('Er is een fout opgetreden');
+        // Niet als harde fout tonen in transcript; dit gaf veel ruis voor de klant.
         isCallActive = false;
+        stopCartSync();
         updateUI('idle');
-        updateAssistantStatus('error', 'Fout opgetreden');
+        updateAssistantStatus('idle', 'Lisa is klaar');
     });
 
     console.log('Event listeners setup complete');
+    listenersAttached = true;
 }
 
 // ============================================
@@ -145,6 +217,9 @@ function setupEventListeners() {
 // ============================================
 function handleMessage(message) {
     console.log('Message received:', message.type, message);
+    if (message?.call?.id) {
+        setCurrentVapiCallId(message.call.id);
+    }
 
     switch (message.type) {
         case 'transcript':
@@ -155,12 +230,20 @@ function handleMessage(message) {
             handleToolCalls(message);
             break;
 
+        case 'tool-call':
+            handleToolCalls({ toolCalls: [message.toolCall || message] });
+            break;
+
         case 'tool-call-result':
             handleToolCallResult(message);
             break;
 
         case 'function-call':
             handleFunctionCall(message);
+            break;
+
+        case 'function-call-result':
+            handleFunctionCallResultMessage(message);
             break;
 
         case 'conversation-update':
@@ -178,6 +261,14 @@ function handleMessage(message) {
         case 'status-update':
             console.log('Status update:', message.status);
             break;
+
+        default:
+            if (message?.toolCallList || message?.toolCalls || message?.toolCall) {
+                handleToolCalls(message);
+            } else if (message?.functionCall) {
+                handleFunctionCall(message);
+            }
+            break;
     }
 }
 
@@ -186,18 +277,37 @@ function handleTranscript(message) {
     const role = message.role || 'user';
     
     if (message.transcriptType === 'partial') {
-        updatePartialTranscript(message.transcript, role);
+        // Partial assistant-transcript zorgt voor hakkelige/onjuiste tussenzinnen in de UI.
+        if (role === 'user') {
+            updatePartialTranscript(message.transcript, role);
+        }
     } else if (message.transcriptType === 'final') {
         addTranscriptMessage(message.transcript, role);
     }
 }
 
 function handleToolCalls(message) {
-    if (message.toolCalls) {
-        message.toolCalls.forEach(call => {
+    const calls = [];
+    if (Array.isArray(message?.toolCalls)) {
+        calls.push(...message.toolCalls);
+    }
+    if (Array.isArray(message?.toolCallList)) {
+        calls.push(...message.toolCallList);
+    }
+    if (message?.toolCall) {
+        calls.push(message.toolCall);
+    }
+
+    if (calls.length > 0) {
+        calls.forEach(call => {
             const toolName = call.function?.name || call.name || 'onbekend';
+            const toolCallId = call.id || call.toolCallId || call.functionCallId;
             const args = call.function?.arguments || call.arguments || {};
             console.log('Tool called:', toolName, args);
+
+            if (toolCallId) {
+                toolCallNameById.set(toolCallId, toolName);
+            }
 
             // Parse arguments if string
             let parsedArgs = args;
@@ -212,9 +322,9 @@ function handleToolCalls(message) {
                 case 'add_to_cart':
                     // Voeg item direct toe aan lokale cart voor snelle UI update
                     const itemName = parsedArgs.item || parsedArgs.name || '';
-                    const qty = parsedArgs.quantity || 1;
+                    const qty = Number(parsedArgs.quantity || 1);
                     if (itemName) {
-                        addItemToLocalCart(itemName, qty);
+                        addItemToLocalCart(itemName, Number.isFinite(qty) ? qty : 1);
                     }
                     break;
                 case 'get_cart':
@@ -247,7 +357,96 @@ function addItemToLocalCart(itemName, quantity) {
     
     // Update display
     renderOrderDisplay();
+    // Fallback: haal prijs direct op via webhook als VAPI result event ontbreekt
+    void enrichLocalItemPrice(itemName);
     console.log('Cart updated:', currentOrder);
+}
+
+async function enrichLocalItemPrice(itemName) {
+    const normalizedName = (itemName || '').toLowerCase().trim();
+    if (!normalizedName) return;
+
+    const cachedPrice = priceLookupCache.get(normalizedName);
+    if (typeof cachedPrice === 'number' && cachedPrice > 0) {
+        applyPriceToMatchingCartItem(itemName, itemName, cachedPrice);
+        return;
+    }
+
+    try {
+        const response = await fetch(`${WEBHOOK_BASE_URL}/tools/search_menu`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ query: itemName })
+        });
+
+        if (!response.ok) {
+            return;
+        }
+
+        const data = await response.json();
+        const items = Array.isArray(data?.items) ? data.items : [];
+        if (items.length === 0) return;
+
+        const best = findBestMenuMatch(normalizedName, items);
+        if (!best || typeof best.price !== 'number' || best.price <= 0) {
+            return;
+        }
+
+        priceLookupCache.set(normalizedName, best.price);
+        applyPriceToMatchingCartItem(itemName, best.name || itemName, best.price);
+    } catch (error) {
+        console.log('Price lookup failed:', error);
+    }
+}
+
+function findBestMenuMatch(normalizedName, menuItems) {
+    let bestItem = null;
+    let bestScore = -1;
+
+    menuItems.forEach(item => {
+        const candidateName = (item?.name || '').toLowerCase();
+        if (!candidateName) return;
+
+        let score = 0;
+        if (candidateName === normalizedName) score = 100;
+        else if (candidateName.includes(normalizedName) || normalizedName.includes(candidateName)) score = 80;
+        else {
+            const overlap = normalizedName.split(' ').filter(word => word && candidateName.includes(word)).length;
+            score = overlap * 10;
+        }
+
+        if (score > bestScore) {
+            bestScore = score;
+            bestItem = item;
+        }
+    });
+
+    return bestItem;
+}
+
+function applyPriceToMatchingCartItem(originalName, resolvedName, price) {
+    const original = (originalName || '').toLowerCase();
+    let updated = false;
+
+    currentOrder.forEach(item => {
+        const itemName = (item.name || '').toLowerCase();
+        if (
+            itemName === original ||
+            itemName.includes(original) ||
+            original.includes(itemName)
+        ) {
+            item.price = price;
+            if (resolvedName) item.name = resolvedName;
+            updated = true;
+        }
+    });
+
+    if (updated) {
+        orderTotalAmount = currentOrder.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+        renderOrderDisplay();
+    }
 }
 
 function renderOrderDisplay() {
@@ -255,11 +454,11 @@ function renderOrderDisplay() {
 
     if (currentOrder.length === 0) {
         orderItems.innerHTML = '<li class="empty-order">Nog geen items</li>';
-        orderTotal.textContent = 'Totaal: €0.00';
+        orderTotal.textContent = 'Totaal: €0,00';
     } else {
         orderItems.innerHTML = currentOrder.map(item => {
             const priceDisplay = item.price > 0 
-                ? `€${(item.price * item.quantity).toFixed(2)}` 
+                ? formatEuroDisplay(item.price * item.quantity)
                 : '';
             return `
                 <li>
@@ -270,74 +469,122 @@ function renderOrderDisplay() {
             `;
         }).join('');
         
-        // Bereken totaal alleen als we prijzen hebben
-        const total = currentOrder.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-        orderTotal.textContent = total > 0 ? `Totaal: €${total.toFixed(2)}` : 'Totaal: -';
+        const totalFromItems = currentOrder.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+        const total = orderTotalAmount > 0 ? orderTotalAmount : totalFromItems;
+        orderTotal.textContent = total > 0 ? `Totaal: ${formatEuroDisplay(total)}` : 'Totaal: -';
     }
 }
 
 function handleToolCallResult(message) {
-    // VAPI stuurt tool results terug met name en result
-    const toolName = message.name || message.toolName || '';
-    let result = message.result;
-    
-    console.log('Tool result received:', toolName, result);
-    
-    // Parse result if string
-    if (typeof result === 'string') {
-        try { result = JSON.parse(result); } catch(e) { /* keep as string */ }
+    const entries = extractToolResultEntries(message);
+    if (entries.length === 0) {
+        return;
     }
-    
-    if (toolName === 'add_to_cart' && result) {
-        console.log('Item toegevoegd:', result);
-        
-        // Als we cart data hebben van de server, gebruik die
-        if (result.cart && result.cart.items) {
-            currentOrder = result.cart.items.map(item => ({
+
+    entries.forEach(({ toolName, result }) => {
+        console.log('Tool result received:', toolName, result);
+
+        if (toolName === 'add_to_cart' && result) {
+            if (result.cart && result.cart.items) {
+                currentOrder = result.cart.items.map(item => ({
+                    name: item.name,
+                    quantity: item.qty || item.quantity || 1,
+                    price: item.price || 0
+                }));
+                orderTotalAmount = Number(result.cart.total || 0);
+                renderOrderDisplay();
+            } else if (result.item) {
+                const itemData = result.item;
+                const existing = currentOrder.find(c =>
+                    c.name.toLowerCase() === itemData.name.toLowerCase()
+                );
+                if (existing) {
+                    existing.price = itemData.price || 0;
+                    existing.name = itemData.name;
+                }
+                if (typeof result.total === 'number') {
+                    orderTotalAmount = result.total;
+                }
+                renderOrderDisplay();
+            }
+        }
+
+        if (toolName === 'search_menu' && result && result.items) {
+            result.items.forEach(menuItem => {
+                const cartItem = currentOrder.find(c =>
+                    c.name.toLowerCase().includes(menuItem.name.toLowerCase()) ||
+                    menuItem.name.toLowerCase().includes(c.name.toLowerCase())
+                );
+                if (cartItem && menuItem.price) {
+                    cartItem.price = menuItem.price;
+                    cartItem.name = menuItem.name;
+                }
+            });
+            renderOrderDisplay();
+        }
+
+        if (toolName === 'get_cart' && result && result.items) {
+            currentOrder = result.items.map(item => ({
                 name: item.name,
                 quantity: item.qty || item.quantity || 1,
                 price: item.price || 0
             }));
-            renderOrderDisplay();
-        } 
-        // Anders update het specifieke item met prijs
-        else if (result.item) {
-            const itemData = result.item;
-            const existing = currentOrder.find(c => 
-                c.name.toLowerCase() === itemData.name.toLowerCase()
-            );
-            if (existing) {
-                existing.price = itemData.price || 0;
-                existing.name = itemData.name; // Gebruik correcte naam van server
-            }
+            orderTotalAmount = Number(result.total || 0);
             renderOrderDisplay();
         }
-    }
-    
-    if (toolName === 'search_menu' && result && result.items) {
-        // Update prijzen in lokale cart als we menu items krijgen
-        result.items.forEach(menuItem => {
-            const cartItem = currentOrder.find(c => 
-                c.name.toLowerCase().includes(menuItem.name.toLowerCase()) ||
-                menuItem.name.toLowerCase().includes(c.name.toLowerCase())
-            );
-            if (cartItem && menuItem.price) {
-                cartItem.price = menuItem.price;
-                cartItem.name = menuItem.name; // Gebruik correcte naam
-            }
+    });
+}
+
+function extractToolResultEntries(message) {
+    const entries = [];
+
+    // Format 1: message.result + name/toolName
+    if (message.result !== undefined) {
+        entries.push({
+            toolName: message.name || message.toolName || '',
+            toolCallId: message.toolCallId || message.id,
+            result: parseJsonIfNeeded(message.result)
         });
-        renderOrderDisplay();
     }
-    
-    if (toolName === 'get_cart' && result && result.items) {
-        // Volledige cart van server - vervang lokale
-        currentOrder = result.items.map(item => ({
-            name: item.name,
-            quantity: item.qty || item.quantity || 1,
-            price: item.price || 0
-        }));
-        renderOrderDisplay();
+
+    // Format 2: message.results = [{toolCallId, result}]
+    if (Array.isArray(message.results)) {
+        message.results.forEach(entry => {
+            entries.push({
+                toolName: entry.name || entry.toolName || '',
+                toolCallId: entry.toolCallId || entry.id,
+                result: parseJsonIfNeeded(entry.result)
+            });
+        });
     }
+
+    // Format 3: nested object
+    if (message.toolCallResult) {
+        entries.push({
+            toolName: message.toolCallResult.name || message.toolCallResult.toolName || '',
+            toolCallId: message.toolCallResult.toolCallId || message.toolCallResult.id,
+            result: parseJsonIfNeeded(message.toolCallResult.result)
+        });
+    }
+
+    return entries.map(entry => {
+        const resolvedName = entry.toolName || toolCallNameById.get(entry.toolCallId) || '';
+        if (entry.toolCallId) {
+            toolCallNameById.delete(entry.toolCallId);
+        }
+        return { toolName: resolvedName, result: entry.result };
+    });
+}
+
+function parseJsonIfNeeded(value) {
+    if (typeof value === 'string') {
+        try {
+            return JSON.parse(value);
+        } catch (error) {
+            return value;
+        }
+    }
+    return value;
 }
 
 function handleFunctionCall(message) {
@@ -345,26 +592,45 @@ function handleFunctionCall(message) {
     if (funcName) {
         console.log('Function called:', funcName);
 
-        if (funcName === 'get_cart' && message.functionCall?.result) {
-            try {
-                const result = JSON.parse(message.functionCall.result);
-                if (result.items) {
-                    updateOrderDisplay(result.items, result.total);
-                }
-            } catch (e) {
-                console.log('Could not parse cart result');
+        const args = parseJsonIfNeeded(message.functionCall?.arguments || {});
+        if (funcName === 'add_to_cart' && args) {
+            const itemName = args.item || args.name || '';
+            const qty = Number(args.quantity || 1);
+            if (itemName) {
+                addItemToLocalCart(itemName, Number.isFinite(qty) ? qty : 1);
             }
+        }
+
+        if (message.functionCall?.result !== undefined) {
+            handleToolCallResult({
+                name: funcName,
+                result: message.functionCall.result
+            });
+        } else if ((funcName === 'get_cart' || funcName === 'add_to_cart') && currentOrder.length === 0) {
+            void syncCartFromServer();
         }
     }
 }
 
+function handleFunctionCallResultMessage(message) {
+    const resultPayload = message.functionCallResult || message.functionCall || {};
+    const funcName = resultPayload.name || message.name || message.toolName || '';
+    const resultValue = resultPayload.result !== undefined ? resultPayload.result : message.result;
+
+    if (!funcName || resultValue === undefined) {
+        return;
+    }
+
+    handleToolCallResult({
+        name: funcName,
+        result: resultValue
+    });
+}
+
 function handleConversationUpdate(message) {
+    // Transcript events zijn al leidend; conversation-update zorgt anders voor duplicates.
     if (message.conversation && message.conversation.length > 0) {
-        const lastMessage = message.conversation[message.conversation.length - 1];
-        if (lastMessage.role === 'assistant' && lastMessage.content) {
-            addTranscriptMessage(lastMessage.content, 'assistant');
-            updateAssistantStatus('speaking', 'Lisa spreekt...');
-        }
+        updateAssistantStatus('speaking', 'Lisa spreekt...');
     }
 }
 
@@ -406,7 +672,8 @@ async function startCall() {
         console.log('Starting call with assistant:', ASSISTANT_ID);
 
         // Script-tag SDK: start() met assistant ID
-        await vapi.start(ASSISTANT_ID);
+        const startedCall = await vapi.start(ASSISTANT_ID);
+        setCurrentVapiCallId(startedCall?.id || startedCall?.call?.id);
         console.log('Call start command sent');
 
     } catch (error) {
@@ -543,18 +810,124 @@ function addSystemMessage(text) {
     scrollToBottom();
 }
 
+function normalizeTranscriptText(text) {
+    return String(text || '')
+        .replace(/\s+/g, ' ')
+        .replace(/\s+([,.!?;:])/g, '$1')
+        .trim();
+}
+
+function canonicalTranscriptText(text) {
+    return normalizeTranscriptText(text)
+        .toLowerCase()
+        .replace(/[.,!?;:]/g, '')
+        .trim();
+}
+
+function mergeAssistantText(previous, next) {
+    if (!previous) return next;
+    if (!next) return previous;
+    if (previous === next || previous.includes(next)) return previous;
+    if (next.startsWith(previous)) return next;
+
+    const merged = `${previous} ${next}`
+        .replace(/\s+/g, ' ')
+        .replace(/\s+([,.!?;:])/g, '$1')
+        .trim();
+    return merged;
+}
+
+function formatEuroDisplay(value) {
+    const amount = Number(value || 0);
+    return `€${amount.toFixed(2).replace('.', ',')}`;
+}
+
 function addTranscriptMessage(text, role) {
     const partial = transcriptBox.querySelector('.partial-transcript');
     if (partial) partial.remove();
 
-    if (!text || text.trim() === '') return;
+    const normalizedText = normalizeTranscriptText(text);
+    if (!normalizedText) return;
 
     const lastMessage = transcriptMessages[transcriptMessages.length - 1];
-    if (lastMessage && lastMessage.text === text && lastMessage.role === role) {
+    if (lastMessage && lastMessage.text === normalizedText && lastMessage.role === role) {
         return;
     }
 
-    transcriptMessages.push({ text, role });
+    const now = Date.now();
+    const normalizedCanonical = canonicalTranscriptText(normalizedText);
+    if (
+        lastMessage &&
+        lastMessage.role === role &&
+        (now - (lastMessage.timestamp || 0)) <= 3000 &&
+        (
+            normalizedText.startsWith(lastMessage.text) ||
+            lastMessage.text.startsWith(normalizedText)
+        )
+    ) {
+        const replacement = normalizedText.length >= lastMessage.text.length
+            ? normalizedText
+            : lastMessage.text;
+        lastMessage.text = replacement;
+        lastMessage.timestamp = now;
+        if (lastMessage.element) {
+            const textEl = lastMessage.element.querySelector('.message-text');
+            if (textEl) {
+                textEl.textContent = replacement;
+            }
+        }
+        scrollToBottom();
+        return;
+    }
+
+    if (
+        role === 'assistant' &&
+        lastMessage &&
+        lastMessage.role === 'assistant' &&
+        (now - (lastMessage.timestamp || 0)) <= ASSISTANT_MERGE_WINDOW_MS
+    ) {
+        const previousCanonical = canonicalTranscriptText(lastMessage.text);
+        if (
+            previousCanonical === normalizedCanonical ||
+            previousCanonical.includes(normalizedCanonical) ||
+            normalizedCanonical.includes(previousCanonical)
+        ) {
+            const replacement = normalizedText.length >= lastMessage.text.length
+                ? normalizedText
+                : lastMessage.text;
+            lastMessage.text = replacement;
+            lastMessage.timestamp = now;
+            if (lastMessage.element) {
+                const textEl = lastMessage.element.querySelector('.message-text');
+                if (textEl) textEl.textContent = replacement;
+            }
+            scrollToBottom();
+            return;
+        }
+    }
+
+    if (
+        role === 'assistant' &&
+        lastMessage &&
+        lastMessage.role === 'assistant' &&
+        (now - (lastMessage.timestamp || 0)) <= ASSISTANT_MERGE_WINDOW_MS
+    ) {
+        const mergedText = mergeAssistantText(lastMessage.text, normalizedText);
+        if (mergedText.length <= ASSISTANT_MAX_MERGED_LENGTH) {
+            lastMessage.text = mergedText;
+            lastMessage.timestamp = now;
+            if (lastMessage.element) {
+                const textEl = lastMessage.element.querySelector('.message-text');
+                if (textEl) {
+                    textEl.textContent = mergedText;
+                }
+            }
+            scrollToBottom();
+            return;
+        }
+    }
+
+    transcriptMessages.push({ text: normalizedText, role, timestamp: now, element: null });
 
     const messageEl = document.createElement('div');
     messageEl.className = `transcript-message ${role}`;
@@ -564,8 +937,11 @@ function addTranscriptMessage(text, role) {
 
     messageEl.innerHTML = `
         <div class="message-label">${icon} ${label}</div>
-        <div class="message-text">${text}</div>
+        <div class="message-text">${normalizedText}</div>
     `;
+
+    const saved = transcriptMessages[transcriptMessages.length - 1];
+    saved.element = messageEl;
 
     transcriptBox.appendChild(messageEl);
     scrollToBottom();
@@ -612,7 +988,11 @@ function updateOrderDisplay(items, total) {
         quantity: item.qty || item.quantity || 1,
         price: item.price || 0
     }));
-    orderTotalAmount = total || 0;
+    if (typeof total === 'number') {
+        orderTotalAmount = total;
+    } else {
+        orderTotalAmount = currentOrder.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    }
 
     if (currentOrder.length === 0) {
         orderItems.innerHTML = '<li class="empty-order">Nog geen items</li>';
@@ -621,12 +1001,12 @@ function updateOrderDisplay(items, total) {
             <li>
                 <span class="item-qty">${item.quantity}x</span>
                 <span class="item-name">${item.name}</span>
-                <span class="item-price">€${(item.price * item.quantity).toFixed(2)}</span>
+                <span class="item-price">${formatEuroDisplay(item.price * item.quantity)}</span>
             </li>
         `).join('');
     }
 
-    orderTotal.textContent = `Totaal: €${orderTotalAmount.toFixed(2)}`;
+    orderTotal.textContent = `Totaal: ${formatEuroDisplay(orderTotalAmount)}`;
 }
 
 // ============================================
@@ -663,6 +1043,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 window.addEventListener('beforeunload', () => {
+    stopCartSync();
     const vapi = window.vapiInstance;
     if (vapi && isCallActive) {
         vapi.stop();

@@ -33,7 +33,7 @@ def is_open_now() -> dict:
         next_open = get_next_opening()
         return {
             "open": False,
-            "reason": f"Vandaag ({day}) zijn we gesloten",
+            "reason": f"Vandaag ({translate_day(day)}) zijn we gesloten",
             "next_open": next_open
         }
 

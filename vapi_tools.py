@@ -206,7 +206,7 @@ def get_vapi_tools(webhook_url: str) -> list:
                             "description": "Extra opmerkingen voor de hele bestelling"
                         }
                     },
-                    "required": ["pickup_time", "items"]
+                    "required": ["customer_name", "pickup_time", "items"]
                 }
             },
             "server": {
@@ -227,6 +227,27 @@ def get_vapi_tools(webhook_url: str) -> list:
             },
             "server": {
                 "url": f"{webhook_url}/vapi/tools/hours"
+            }
+        },
+        {
+            "type": "function",
+            "async": False,
+            "function": {
+                "name": "handoff_to_human",
+                "description": "Verbind direct door naar een medewerker wanneer klant geen bestelling wil plaatsen of om een medewerker vraagt.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "reason": {
+                            "type": "string",
+                            "description": "Korte reden voor doorverbinden"
+                        }
+                    },
+                    "required": []
+                }
+            },
+            "server": {
+                "url": f"{webhook_url}/vapi/tools/handoff"
             }
         }
     ]

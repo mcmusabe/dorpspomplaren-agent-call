@@ -11,6 +11,7 @@ GEOPTIMALISEERD:
 from functools import lru_cache
 from typing import Optional, Dict, List, Tuple
 import time
+import re
 
 MENU = {
     "friet": {
@@ -567,7 +568,24 @@ def format_price(price: float) -> str:
     """Format prijs naar euro string"""
     if price is None:
         return "Prijs onbekend"
-    return f"€ {price:.2f}"
+    return f"EUR {price:.2f}".replace(".", ",")
+
+
+def format_price_spoken(price: float) -> str:
+    """Format prijs voor natuurlijke Nederlandse uitspraak."""
+    if price is None:
+        return "prijs onbekend"
+
+    value = float(price)
+    euros = int(value)
+    cents = int(round((value - euros) * 100))
+    if cents == 100:
+        euros += 1
+        cents = 0
+
+    if cents == 0:
+        return f"{euros} euro"
+    return f"{euros} euro en {cents:02d} cent"
 
 
 def calculate_order_total(items: list) -> dict:
@@ -585,7 +603,26 @@ def calculate_order_total(items: list) -> dict:
 
     for item in items:
         item_name = item.get("name", "").lower()
-        qty = item.get("qty", 1)
+        raw_qty = item.get("qty", item.get("quantity", 1))
+        if isinstance(raw_qty, int):
+            qty = raw_qty
+        elif isinstance(raw_qty, float):
+            qty = int(raw_qty)
+        elif isinstance(raw_qty, str):
+            text = raw_qty.strip().lower()
+            qty_words = {
+                "een": 1, "eentje": 1,
+                "twee": 2, "drie": 3, "vier": 4, "vijf": 5,
+                "zes": 6, "zeven": 7, "acht": 8, "negen": 9, "tien": 10
+            }
+            if text in qty_words:
+                qty = qty_words[text]
+            else:
+                match = re.search(r"\d+", text)
+                qty = int(match.group(0)) if match else 1
+        else:
+            qty = 1
+        qty = max(1, qty)
 
         price = get_item_price(item_name)
 
@@ -611,5 +648,6 @@ def calculate_order_total(items: list) -> dict:
     return {
         "items": items_with_prices,
         "total": total,
-        "formatted_total": format_price(total)
+        "formatted_total": format_price(total),
+        "spoken_total": format_price_spoken(total)
     }

@@ -113,7 +113,7 @@ def create_assistant():
             "tools": all_tools
         },
 
-        # Voice (tekst naar spraak) - SNELLE Nederlandse stem
+        # Voice (tekst naar spraak) - consistente Nederlandse stem
         "voice": {
             "provider": VAPI_VOICE_CONFIG["provider"],
             "voiceId": VAPI_VOICE_CONFIG["voiceId"],
@@ -121,10 +121,10 @@ def create_assistant():
             "language": VAPI_VOICE_CONFIG.get("language", "nl"),
             "stability": VAPI_VOICE_CONFIG["stability"],
             "similarityBoost": VAPI_VOICE_CONFIG["similarityBoost"],
-            "style": VAPI_VOICE_CONFIG.get("style", 0.5),
-            "useSpeakerBoost": VAPI_VOICE_CONFIG.get("useSpeakerBoost", True),
-            "optimizeStreamingLatency": VAPI_VOICE_CONFIG.get("optimizeStreamingLatency", 3),
-            "speed": VAPI_VOICE_CONFIG.get("speed", 1.1)
+            "style": VAPI_VOICE_CONFIG.get("style", 0.15),
+            "useSpeakerBoost": VAPI_VOICE_CONFIG.get("useSpeakerBoost", False),
+            "optimizeStreamingLatency": VAPI_VOICE_CONFIG.get("optimizeStreamingLatency", 2),
+            "speed": VAPI_VOICE_CONFIG.get("speed", 0.98)
         },
 
         # Eerste bericht
@@ -154,22 +154,21 @@ def create_assistant():
         "backchannelingEnabled": False,     # Geen "hmm" tussendoor
         "hipaaEnabled": False,
         
-        # Start Speaking Plan - Voor NEDERLANDS (text-based endpointing)
-        # LiveKit werkt alleen voor Engels, dus we gebruiken transcriptionEndpointingPlan
+        # Snelle maar stabiele beurtwissel
         "startSpeakingPlan": {
-            "waitSeconds": 0.3,             # 300ms wachten na spraak stopt
+            "waitSeconds": 0.22,
             "transcriptionEndpointingPlan": {
-                "onPunctuationSeconds": 0.1,      # Snel na interpunctie
-                "onNoPunctuationSeconds": 1.2,    # Langer wachten zonder interpunctie
-                "onNumberSeconds": 0.8            # Extra tijd voor nummers (hoeveelheden)
+                "onPunctuationSeconds": 0.25,
+                "onNoPunctuationSeconds": 1.0,
+                "onNumberSeconds": 0.7
             }
         },
         
         # Stop Speaking Plan - Interrupt detectie
         "stopSpeakingPlan": {
-            "numWords": 0,                  # VAD-based (snelste)
-            "voiceSeconds": 0.2,            # 200ms voice activity voor interrupt
-            "backoffSeconds": 0.8           # 800ms rust na interrupt
+            "numWords": 0,
+            "voiceSeconds": 0.2,
+            "backoffSeconds": 0.45
         },
 
         # End call phrases - Nederlandse uitdrukkingen
@@ -259,7 +258,7 @@ def update_assistant(assistant_id):
             "tools": all_tools
         },
 
-        # Voice - Nederlandse stem
+        # Voice - consistente Nederlandse stem
         "voice": {
             "provider": VAPI_VOICE_CONFIG["provider"],
             "voiceId": VAPI_VOICE_CONFIG["voiceId"],
@@ -267,10 +266,10 @@ def update_assistant(assistant_id):
             "language": VAPI_VOICE_CONFIG.get("language", "nl"),
             "stability": VAPI_VOICE_CONFIG["stability"],
             "similarityBoost": VAPI_VOICE_CONFIG["similarityBoost"],
-            "style": VAPI_VOICE_CONFIG.get("style", 0.3),
+            "style": VAPI_VOICE_CONFIG.get("style", 0.15),
             "useSpeakerBoost": VAPI_VOICE_CONFIG.get("useSpeakerBoost", False),
-            "optimizeStreamingLatency": VAPI_VOICE_CONFIG.get("optimizeStreamingLatency", 4),
-            "speed": VAPI_VOICE_CONFIG.get("speed", 1.15)
+            "optimizeStreamingLatency": VAPI_VOICE_CONFIG.get("optimizeStreamingLatency", 2),
+            "speed": VAPI_VOICE_CONFIG.get("speed", 0.98)
         },
 
         "firstMessage": VAPI_FIRST_MESSAGE,
@@ -285,13 +284,13 @@ def update_assistant(assistant_id):
         "interruptionsEnabled": True,
         "backchannelingEnabled": False,
         
-        # Start Speaking Plan - Voor NEDERLANDS
+        # Snelle maar stabiele beurtwissel
         "startSpeakingPlan": {
-            "waitSeconds": 0.3,
+            "waitSeconds": 0.22,
             "transcriptionEndpointingPlan": {
-                "onPunctuationSeconds": 0.1,
-                "onNoPunctuationSeconds": 1.2,
-                "onNumberSeconds": 0.8
+                "onPunctuationSeconds": 0.25,
+                "onNoPunctuationSeconds": 1.0,
+                "onNumberSeconds": 0.7
             }
         },
         
@@ -299,7 +298,7 @@ def update_assistant(assistant_id):
         "stopSpeakingPlan": {
             "numWords": 0,
             "voiceSeconds": 0.2,
-            "backoffSeconds": 0.8
+            "backoffSeconds": 0.45
         },
         
         "endCallPhrases": [

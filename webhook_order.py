@@ -15,7 +15,7 @@ import logging
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import threading
-from menu import calculate_order_total, format_price, search_item, smart_search_item, get_item_price, get_item_with_price, MENU
+from menu import calculate_order_total, format_price, format_price_spoken, search_item, smart_search_item, get_item_price, get_item_with_price, MENU
 from opening_hours import is_open_now, is_pickup_time_valid, get_next_opening
 
 # Thread pool voor async email
@@ -156,11 +156,12 @@ def get_call_id(request: Request, platform: str = None, body: Dict[str, Any] = N
     Retell: x-retell-call-id header
     VAPI: call.id in body of x-vapi-call-id header
     """
+    # Accepteer VAPI call-id header altijd (ook op generieke /tools/* endpoints)
+    vapi_call_id = request.headers.get("x-vapi-call-id")
+    if vapi_call_id:
+        return vapi_call_id
+
     if platform == "vapi":
-        # VAPI: probeer header eerst
-        vapi_call_id = request.headers.get("x-vapi-call-id")
-        if vapi_call_id:
-            return vapi_call_id
         # VAPI: probeer body
         if body and "call" in body:
             call_obj = body.get("call", {})
@@ -170,6 +171,64 @@ def get_call_id(request: Request, platform: str = None, body: Dict[str, Any] = N
 
     # Retell (default)
     return request.headers.get("x-retell-call-id", "unknown")
+
+
+def coerce_quantity(raw_qty: Any, default: int = 1) -> int:
+    """Maak quantity robuust voor ints/strings zoals '3', '3x', 'drie'."""
+    if isinstance(raw_qty, bool):
+        return default
+    if isinstance(raw_qty, int):
+        return max(1, raw_qty)
+    if isinstance(raw_qty, float):
+        return max(1, int(raw_qty))
+    if isinstance(raw_qty, str):
+        text = raw_qty.strip().lower()
+        if not text:
+            return default
+
+        word_map = {
+            "een": 1, "eentje": 1,
+            "twee": 2, "drie": 3, "vier": 4, "vijf": 5,
+            "zes": 6, "zeven": 7, "acht": 8, "negen": 9, "tien": 10
+        }
+        if text in word_map:
+            return word_map[text]
+
+        match = re.search(r"\d+", text)
+        if match:
+            try:
+                return max(1, int(match.group(0)))
+            except Exception:
+                return default
+    return default
+
+
+def coerce_price(raw_price: Any, default: float = 0.0) -> float:
+    """Maak prijs veilig numeriek voor totaalsommen."""
+    try:
+        if raw_price is None:
+            return default
+        return float(raw_price)
+    except Exception:
+        return default
+
+
+def normalize_cart_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Normaliseer qty/price velden zodat cart-berekeningen niet crashen."""
+    normalized: List[Dict[str, Any]] = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        qty = coerce_quantity(item.get("qty", item.get("quantity", 1)))
+        price = coerce_price(item.get("price", 0.0))
+        normalized.append({**item, "qty": qty, "price": price})
+    return normalized
+
+
+def compute_cart_total(items: List[Dict[str, Any]]) -> float:
+    """Bereken cart totaal met genormaliseerde waarden."""
+    return sum(coerce_price(item.get("price", 0.0)) * coerce_quantity(item.get("qty", 1)) for item in items)
+
 
 def sanitize_string(text: str, max_length: int = 200) -> str:
     """Sanitize user input om email injection te voorkomen"""
@@ -479,7 +538,7 @@ async def receive_order(request: Request):
 
         return {
             "status": "ok",
-            "message": "Order received and email sent",
+            "message": "Bestelling ontvangen en e-mail verzonden",
             "order_id": order_id,
             "total": pricing["formatted_total"],
             "email_status": "sent"
@@ -533,7 +592,16 @@ async def vapi_server_webhook(request: Request):
                     query = params.get("query", "")
                     if query:
                         items = smart_search_item(query.lower())
-                        formatted = [{"name": i["name"], "price": i["price"], "category": i["category"], "price_formatted": format_price(i["price"])} for i in items]
+                        formatted = [
+                            {
+                                "name": i["name"],
+                                "price": i["price"],
+                                "category": i["category"],
+                                "price_formatted": format_price(i["price"]),
+                                "price_spoken": format_price_spoken(i["price"])
+                            }
+                            for i in items
+                        ]
                         result = {"items": formatted, "total": len(formatted), "query": query}
                     else:
                         result = {"items": [], "total": 0, "query": "", "message": "Geen zoekterm"}
@@ -542,7 +610,7 @@ async def vapi_server_webhook(request: Request):
                 elif tool_name == "add_to_cart":
                     call_id = body.get("call", {}).get("id", "vapi-server")
                     item_name = params.get("item", "")
-                    qty = params.get("quantity", 1)
+                    qty = coerce_quantity(params.get("quantity", 1))
                     notes = params.get("notes", "")
 
                     # Cleanup oude carts
@@ -572,7 +640,7 @@ async def vapi_server_webhook(request: Request):
                         found = False
                         for cart_item in cart_store[call_id]["items"]:
                             if cart_item["name"].lower() == final_name.lower():
-                                cart_item["qty"] += qty
+                                cart_item["qty"] = coerce_quantity(cart_item.get("qty", 1)) + qty
                                 found = True
                                 break
 
@@ -585,8 +653,9 @@ async def vapi_server_webhook(request: Request):
                             })
 
                         # Bereken cart totaal
-                        cart_total = sum(item.get("price", 0) * item.get("qty", 1) for item in cart_store[call_id]["items"])
+                        cart_store[call_id]["items"] = normalize_cart_items(cart_store[call_id]["items"])
                         cart_items = cart_store[call_id]["items"].copy()
+                        cart_total = compute_cart_total(cart_items)
 
                     result = {
                         "status": "ok",
@@ -594,13 +663,16 @@ async def vapi_server_webhook(request: Request):
                         "item": {
                             "name": final_name,
                             "qty": qty,
-                            "price": price
+                            "price": price,
+                            "price_formatted": format_price(price) if price else "onbekend",
+                            "price_spoken": format_price_spoken(price) if price else "prijs onbekend"
                         },
                         "cart": {
                             "items": cart_items,
                             "count": len(cart_items),
                             "total": cart_total,
-                            "total_formatted": format_price(cart_total)
+                            "total_formatted": format_price(cart_total),
+                            "total_spoken": format_price_spoken(cart_total)
                         }
                     }
                     results.append({"toolCallId": tool_id, "result": result})
@@ -608,19 +680,20 @@ async def vapi_server_webhook(request: Request):
                 elif tool_name == "get_cart":
                     call_id = body.get("call", {}).get("id", "vapi-server")
                     cart = cart_store.get(call_id, {"items": []})
-                    cart_items = cart.get("items", [])
-                    cart_total = sum(item.get("price", 0) * item.get("qty", 1) for item in cart_items)
+                    cart_items = normalize_cart_items(cart.get("items", []))
+                    cart_total = compute_cart_total(cart_items)
                     result = {
                         "items": cart_items, 
                         "count": len(cart_items),
                         "total": cart_total,
-                        "total_formatted": format_price(cart_total)
+                        "total_formatted": format_price(cart_total),
+                        "total_spoken": format_price_spoken(cart_total)
                     }
                     results.append({"toolCallId": tool_id, "result": result})
                     
                 else:
                     # Unknown tool
-                    results.append({"toolCallId": tool_id, "result": {"error": f"Unknown tool: {tool_name}"}})
+                    results.append({"toolCallId": tool_id, "result": {"error": f"Onbekende tool: {tool_name}"}})
             
             return {"results": results}
         
@@ -729,6 +802,7 @@ async def search_menu(request: Request):
             "name": item["name"],
             "price": item["price"],
             "price_formatted": format_price(item["price"]),
+            "price_spoken": format_price_spoken(item["price"]),
             "category": item["category"]
         })
 
@@ -758,8 +832,16 @@ async def add_to_cart(request: Request):
     debug_log(f"📥 add_to_cart [{call_id}]: {data.get('item', 'unknown')}")
 
     item_name = data.get("item", "")
-    qty = data.get("quantity", 1)
+    qty = coerce_quantity(data.get("quantity", 1))
     notes = data.get("notes", "")
+
+    item_data = get_item_with_price(item_name)
+    if item_data:
+        final_name = item_data["name"]
+        price = item_data["price"]
+    else:
+        final_name = item_name
+        price = 0
 
     # Initialize cart if not exists
     if call_id not in cart_store:
@@ -767,17 +849,36 @@ async def add_to_cart(request: Request):
 
     # Add item to cart
     cart_store[call_id]["items"].append({
-        "name": item_name,
+        "name": final_name,
         "qty": qty,
+        "price": price,
         "notes": notes
     })
 
-    debug_log(f"🛒 Item added to cart [{call_id}]: {qty}x {item_name}")
+    debug_log(f"🛒 Item added to cart [{call_id}]: {qty}x {final_name}")
+
+    cart_store[call_id]["items"] = normalize_cart_items(cart_store[call_id]["items"])
+    cart_items = cart_store[call_id]["items"]
+    cart_total = compute_cart_total(cart_items)
 
     return {
         "status": "ok",
-        "message": f"Added {qty}x {item_name} to cart",
-        "cart_count": len(cart_store[call_id]["items"])
+        "message": f"{qty}x {final_name} toegevoegd",
+        "item": {
+            "name": final_name,
+            "qty": qty,
+            "price": price,
+            "price_formatted": format_price(price) if price else "onbekend",
+            "price_spoken": format_price_spoken(price) if price else "prijs onbekend"
+        },
+        "cart_count": len(cart_items),
+        "cart": {
+            "items": cart_items,
+            "count": len(cart_items),
+            "total": cart_total,
+            "total_formatted": format_price(cart_total),
+            "total_spoken": format_price_spoken(cart_total)
+        }
     }
 
 @app.post("/create_web_call")
@@ -810,9 +911,29 @@ async def get_cart(request: Request):
         return {"items": [], "total_items": 0}
 
     cart = cart_store[call_id]
+
+    # Vul ontbrekende prijzen aan voor legacy cart-items + normaliseer qty/price
+    normalized_items = []
+    for item in cart["items"]:
+        price = item.get("price")
+        if price is None:
+            found = get_item_with_price(item.get("name", ""))
+            price = found["price"] if found else 0
+
+        normalized_items.append({
+            **item,
+            "qty": coerce_quantity(item.get("qty", item.get("quantity", 1))),
+            "price": coerce_price(price)
+        })
+
+    cart["items"] = normalized_items
+    cart_total = compute_cart_total(normalized_items)
     return {
-        "items": cart["items"],
-        "total_items": len(cart["items"])
+        "items": normalized_items,
+        "total_items": len(normalized_items),
+        "total": cart_total,
+        "formatted_total": format_price(cart_total),
+        "total_spoken": format_price_spoken(cart_total)
     }
 
 @app.get("/tools/cart")
@@ -901,6 +1022,7 @@ async def get_menu(category: Optional[str] = None):
                         "name": item_name,
                         "price": price,
                         "price_formatted": format_price(price),
+                        "price_spoken": format_price_spoken(price),
                         "category": cat
                     })
     
@@ -923,6 +1045,7 @@ async def calculate_total(request: Request):
     return {
         "total": pricing["total"],
         "formatted_total": pricing["formatted_total"],
+        "spoken_total": pricing.get("spoken_total", format_price_spoken(pricing["total"])),
         "item_count": len(cart["items"])
     }
 
@@ -936,7 +1059,7 @@ async def update_cart(request: Request):
         raise HTTPException(status_code=404, detail="Geen winkelwagen gevonden")
     
     item_id = data.get("item_id")
-    quantity = int(data.get("quantity", 1))
+    quantity = coerce_quantity(data.get("quantity", 1))
     
     # Find item by name (since we store by name, not id)
     item_name = item_id.replace("_", " ").title() if item_id else None
@@ -946,7 +1069,7 @@ async def update_cart(request: Request):
             item["qty"] = max(1, quantity)
             return {
                 "status": "ok",
-                "message": f"Updated {item['name']} to {quantity}",
+                "message": f"{item['name']} aangepast naar {quantity}",
                 "item": item
             }
     
@@ -981,7 +1104,7 @@ async def remove_from_cart(request: Request):
     
     return {
         "status": "ok",
-        "message": f"Removed {item_name}",
+        "message": f"{item_name} verwijderd",
         "cart_count": len(cart_store[call_id]["items"])
     }
 
@@ -1025,34 +1148,60 @@ def extract_vapi_tool_calls(body: Dict[str, Any]) -> list:
         "call": {"id": "..."}
     }
     """
+    raw_calls = []
     message = body.get("message", {})
+
     if isinstance(message, dict):
-        tool_calls = message.get("toolCallList", [])
-        # Normaliseer: kopieer 'parameters' naar 'arguments' als arguments ontbreekt
-        normalized = []
-        for tc in tool_calls:
-            tc_copy = dict(tc)
-            # VAPI gebruikt 'parameters', maar onze code verwacht 'arguments'
-            if "parameters" in tc_copy and "arguments" not in tc_copy:
-                tc_copy["arguments"] = tc_copy["parameters"]
-            # Ook check voor function.arguments (andere VAPI format)
-            if "function" in tc_copy and isinstance(tc_copy["function"], dict):
-                func = tc_copy["function"]
-                if "arguments" in func:
-                    # arguments kan een JSON string zijn
-                    args = func["arguments"]
-                    if isinstance(args, str):
-                        try:
-                            tc_copy["arguments"] = json.loads(args)
-                        except:
-                            tc_copy["arguments"] = {}
-                    else:
-                        tc_copy["arguments"] = args
-                if "name" in func and "name" not in tc_copy:
-                    tc_copy["name"] = func["name"]
-            normalized.append(tc_copy)
-        return normalized
-    return []
+        if isinstance(message.get("toolCallList"), list):
+            raw_calls.extend(message.get("toolCallList", []))
+        if isinstance(message.get("toolCalls"), list):
+            raw_calls.extend(message.get("toolCalls", []))
+        if isinstance(message.get("toolCall"), dict):
+            raw_calls.append(message.get("toolCall"))
+
+    if isinstance(body.get("toolCallList"), list):
+        raw_calls.extend(body.get("toolCallList", []))
+    if isinstance(body.get("toolCalls"), list):
+        raw_calls.extend(body.get("toolCalls", []))
+    if isinstance(body.get("toolCall"), dict):
+        raw_calls.append(body.get("toolCall"))
+
+    function_call = body.get("functionCall") or (message.get("functionCall") if isinstance(message, dict) else None)
+    if isinstance(function_call, dict):
+        raw_calls.append({
+            "id": function_call.get("id", "function-call"),
+            "name": function_call.get("name"),
+            "arguments": function_call.get("arguments", {})
+        })
+
+    normalized = []
+    for tc in raw_calls:
+        if not isinstance(tc, dict):
+            continue
+        tc_copy = dict(tc)
+        if "parameters" in tc_copy and "arguments" not in tc_copy:
+            tc_copy["arguments"] = tc_copy["parameters"]
+        if "function" in tc_copy and isinstance(tc_copy["function"], dict):
+            func = tc_copy["function"]
+            if "arguments" in func:
+                args = func["arguments"]
+                if isinstance(args, str):
+                    try:
+                        tc_copy["arguments"] = json.loads(args)
+                    except Exception:
+                        tc_copy["arguments"] = {}
+                else:
+                    tc_copy["arguments"] = args
+            if "name" in func and "name" not in tc_copy:
+                tc_copy["name"] = func["name"]
+        if isinstance(tc_copy.get("arguments"), str):
+            try:
+                tc_copy["arguments"] = json.loads(tc_copy["arguments"])
+            except Exception:
+                tc_copy["arguments"] = {}
+        normalized.append(tc_copy)
+
+    return normalized
 
 
 def format_vapi_response(tool_call_id: str, result: Any) -> Dict:
@@ -1088,6 +1237,7 @@ async def vapi_get_menu(request: Request):
                     "name": item_name,
                     "price": price,
                     "price_formatted": format_price(price),
+                    "price_spoken": format_price_spoken(price),
                     "category": cat
                 })
 
@@ -1131,6 +1281,7 @@ async def vapi_search_menu(request: Request):
                     "name": item["name"],
                     "price": item["price"],
                     "price_formatted": format_price(item["price"]),
+                    "price_spoken": format_price_spoken(item["price"]),
                     "category": item["category"]
                 })
             result = {"items": formatted, "total": len(formatted), "query": query}
@@ -1173,7 +1324,7 @@ async def vapi_add_to_cart(request: Request):
         arguments = tool_call.get("arguments", {})
 
         item_name = arguments.get("item", "")
-        qty = arguments.get("quantity", 1)
+        qty = coerce_quantity(arguments.get("quantity", 1))
         notes = arguments.get("notes", "")
 
         logger.info(f"[VAPI] add_to_cart [{call_id}]: {qty}x {item_name}")
@@ -1200,8 +1351,9 @@ async def vapi_add_to_cart(request: Request):
             })
 
             # Bereken cart totaal
-            cart_total = sum(item.get("price", 0) * item.get("qty", 1) for item in cart_store[call_id]["items"])
+            cart_store[call_id]["items"] = normalize_cart_items(cart_store[call_id]["items"])
             cart_items = cart_store[call_id]["items"].copy()
+            cart_total = compute_cart_total(cart_items)
 
         result = {
             "status": "ok",
@@ -1210,13 +1362,15 @@ async def vapi_add_to_cart(request: Request):
                 "name": final_name,
                 "qty": qty,
                 "price": price,
-                "price_formatted": format_price(price) if price else "onbekend"
+                "price_formatted": format_price(price) if price else "onbekend",
+                "price_spoken": format_price_spoken(price) if price else "prijs onbekend"
             },
             "cart": {
                 "items": cart_items,
                 "count": len(cart_items),
                 "total": cart_total,
-                "total_formatted": format_price(cart_total)
+                "total_formatted": format_price(cart_total),
+                "total_spoken": format_price_spoken(cart_total)
             }
         }
         results.append({"toolCallId": tool_call_id, "result": result})
@@ -1238,14 +1392,14 @@ async def vapi_get_cart(request: Request):
         cart_store[call_id] = {"items": [], "customer_name": "", "phone": "", "pickup_time": None}
 
     cart = cart_store[call_id]
-
-    # Bereken totaal direct van opgeslagen prijzen (consistenter dan opnieuw opzoeken)
-    cart_total = sum(item.get("price", 0) * item.get("qty", 1) for item in cart["items"])
+    cart["items"] = normalize_cart_items(cart.get("items", []))
+    cart_total = compute_cart_total(cart["items"])
 
     result = {
         "items": cart["items"],
         "total": cart_total,
         "formatted_total": format_price(cart_total),
+        "total_spoken": format_price_spoken(cart_total),
         "item_count": len(cart["items"])
     }
 
@@ -1270,7 +1424,7 @@ async def vapi_update_cart(request: Request):
 
     # Support beide: "item" (nieuw) en "item_name" (legacy)
     item_name = arguments.get("item") or arguments.get("item_name", "")
-    quantity = arguments.get("quantity", 1)
+    quantity = coerce_quantity(arguments.get("quantity", 1))
 
     if not item_name:
         return format_vapi_response(tool_call_id, {"status": "error", "message": "Geen item opgegeven"})
@@ -1387,6 +1541,33 @@ async def vapi_get_hours(request: Request):
     return format_vapi_response(tool_call_id, result)
 
 
+@app.post("/vapi/tools/handoff")
+async def vapi_handoff(request: Request):
+    """VAPI endpoint: Doorverbinden naar medewerker"""
+    raw_body = await request.body()
+    body = json.loads(raw_body) if raw_body else {}
+
+    call_id = get_call_id(request, "vapi", body)
+    tool_calls = extract_vapi_tool_calls(body)
+
+    if not tool_calls:
+        return {"error": "No tool calls found"}
+
+    tool_call = tool_calls[0]
+    tool_call_id = tool_call.get("id", "unknown")
+    arguments = tool_call.get("arguments", {})
+
+    reason = sanitize_string(arguments.get("reason", "Klant wil medewerker spreken"), max_length=200)
+    logger.info(f"[VAPI] handoff [{call_id}]: {reason}")
+
+    result = {
+        "status": "ok",
+        "message": "Doorverbinden naar medewerker",
+        "reason": reason
+    }
+    return format_vapi_response(tool_call_id, result)
+
+
 @app.post("/vapi/order")
 async def vapi_receive_order(request: Request):
     """VAPI endpoint: Ontvang en verwerk bestelling"""
@@ -1433,7 +1614,7 @@ async def vapi_receive_order(request: Request):
         if isinstance(item, dict):
             normalized_items.append({
                 "name": sanitize_string(str(item.get("name", "")), 100),
-                "qty": max(1, int(item.get("qty", 1))),
+                "qty": coerce_quantity(item.get("qty", item.get("quantity", 1))),
                 "notes": sanitize_string(item.get("notes") or "", 200) if item.get("notes") else None
             })
 
@@ -1479,7 +1660,8 @@ async def vapi_receive_order(request: Request):
         "status": "ok",
         "message": "Bestelling ontvangen en email verzonden",
         "order_id": order_id,
-        "total": pricing["formatted_total"]
+        "total": pricing["formatted_total"],
+        "total_spoken": pricing.get("spoken_total", format_price_spoken(pricing["total"]))
     }
 
     return format_vapi_response(tool_call_id, result)
@@ -1495,4 +1677,3 @@ if __name__ == "__main__":
     print("\nPress CTRL+C to stop the server\n")
     # Use import string for reload to work properly
     uvicorn.run("webhook_order:app", host="0.0.0.0", port=8000, reload=True)
-

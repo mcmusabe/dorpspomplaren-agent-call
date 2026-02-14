@@ -1,5 +1,5 @@
 """
-VAPI Configuratie voor De Dorpspomp & Dieks IJssalon
+VAPI configuratie voor algemene bestel-demo
 """
 
 import os
@@ -13,8 +13,8 @@ VAPI_API_URL = "https://api.vapi.ai"
 
 # Business informatie (gedeeld met Retell)
 BUSINESS_INFO = {
-    "name": "De Dorpspomp & Dieks IJssalon",
-    "address": "Holterweg 1, Laren (Gld)",
+    "name": "Algemene Bestel Demo",
+    "address": "Demo locatie",
     "phone": None,
     "opening_hours": {
         "monday": {"open": None, "close": None, "closed": True},
@@ -28,26 +28,25 @@ BUSINESS_INFO = {
 }
 
 # Voice configuratie voor VAPI (ElevenLabs)
-# MAXIMALE SNELHEID
 VAPI_VOICE_CONFIG = {
     "provider": "11labs",
-    "voiceId": "XJa38TJgDqYhj5mYbSJA",    # Nederlandse stem
-    "model": "eleven_turbo_v2_5",          # TURBO = snelste!
+    "voiceId": "XJa38TJgDqYhj5mYbSJA",
+    "model": "eleven_turbo_v2_5",
     "language": "nl",
-    "stability": 0.5,
-    "similarityBoost": 0.75,
-    "style": 0.3,                          # Lager = sneller genereren
-    "useSpeakerBoost": False,              # Uit = sneller
-    "optimizeStreamingLatency": 4,         # MAX snelheid (4 = snelste)
-    "speed": 1.1                           # Iets sneller praten
+    "stability": 0.72,
+    "similarityBoost": 0.86,
+    "style": 0.15,
+    "useSpeakerBoost": False,
+    "optimizeStreamingLatency": 2,
+    "speed": 0.98
 }
 
-# Model configuratie - MAXIMALE SNELHEID
+# Model configuratie - balans tussen snelheid en natuurlijkheid
 VAPI_MODEL_CONFIG = {
     "provider": "openai",
-    "model": "gpt-4o-mini",    # Snelste OpenAI model
-    "temperature": 0.7,        # Natuurlijker
-    "maxTokens": 50            # KORTER = SNELLER
+    "model": "gpt-4o-mini",
+    "temperature": 0.2,
+    "maxTokens": 100
 }
 
 # Transcriber configuratie (spraak naar tekst) - PROFESSIONEEL voor Nederlands
@@ -62,8 +61,8 @@ VAPI_TRANSCRIBER_CONFIG = {
     "redact": False,                # Geen redactie
     "diarize": False,               # Geen speaker diarization nodig
     "numerals": True,               # Nummers als cijfers (3 ipv "drie")
-    "utteranceEndMs": 1000,         # 1 sec stilte = einde zin
-    "vadTurnoff": 500               # 500ms VAD timeout
+    "utteranceEndMs": 700,
+    "vadTurnoff": 350
 }
 
 # Webhook URL - Railway deployment (PRODUCTIE)
