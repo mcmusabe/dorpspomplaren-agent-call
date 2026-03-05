@@ -60,6 +60,14 @@
             DRUK OP DE KNOP OM TE BESTELLEN
         </div>
 
+        <!-- Menu Browser -->
+        <div class="menu-browser" id="menuBrowser">
+            <div class="menu-tabs" id="menuTabs"></div>
+            <div class="menu-items-grid" id="menuItemsGrid">
+                <div class="menu-loading">Menu laden...</div>
+            </div>
+        </div>
+
         <!-- Main content: Order panel (primary) en Transcript naast elkaar -->
         <div class="main-content">
             <!-- Transcriptie box -->
@@ -110,6 +118,20 @@
 
         <!-- Toast notificaties -->
         <div class="toast-container" id="toastContainer"></div>
+
+        <!-- Order Bevestiging Overlay -->
+        <div class="order-confirmation-overlay" id="orderConfirmation">
+            <div class="confirmation-card">
+                <div class="confirmation-icon">&#10003;</div>
+                <h2 class="confirmation-title">Bestelling Geplaatst!</h2>
+                <div class="confirmation-order-id" id="confirmOrderId"></div>
+                <div class="confirmation-items" id="confirmItems"></div>
+                <div class="confirmation-total" id="confirmTotal"></div>
+                <div class="confirmation-pickup" id="confirmPickup"></div>
+                <div class="confirmation-name" id="confirmName"></div>
+                <div class="confirmation-timer">Scherm sluit automatisch...</div>
+            </div>
+        </div>
 
         <!-- Footer -->
         <footer class="kiosk-footer">

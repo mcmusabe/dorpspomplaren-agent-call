@@ -46,7 +46,7 @@ VAPI_MODEL_CONFIG = {
     "provider": "openai",
     "model": "gpt-4o-mini",
     "temperature": 0.2,
-    "maxTokens": 100
+    "maxTokens": 200
 }
 
 # Transcriber configuratie (spraak naar tekst) - PROFESSIONEEL voor Nederlands

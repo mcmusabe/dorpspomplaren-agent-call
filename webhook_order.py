@@ -15,7 +15,9 @@ import logging
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import threading
-from menu import calculate_order_total, format_price, format_price_spoken, search_item, smart_search_item, get_item_price, get_item_with_price, MENU
+from menu import (calculate_order_total, format_price, format_price_spoken, search_item,
+                   smart_search_item, fuzzy_search_item, get_item_price, get_item_with_price,
+                   MENU, SUGGESTIONS, POPULAR_ITEMS, CATEGORY_LABELS, CATEGORY_ICONS)
 from opening_hours import is_open_now, is_pickup_time_valid, get_next_opening, now_nl
 
 # Thread pool voor async email
@@ -1307,7 +1309,26 @@ async def vapi_search_menu(request: Request):
                     "price_spoken": format_price_spoken(item["price"]),
                     "category": item["category"]
                 })
-            result = {"items": formatted, "total": len(formatted), "query": query}
+            if formatted:
+                result = {"items": formatted, "total": len(formatted), "query": query}
+            else:
+                # Geen resultaten: probeer fuzzy search met lagere drempel
+                fuzzy_results = fuzzy_search_item(query.lower(), threshold=0.4)
+                if fuzzy_results:
+                    top3 = fuzzy_results[:3]
+                    suggestions = [{"name": r["name"], "category": r["category"]} for r in top3]
+                    names = ", ".join(r["name"] for r in top3)
+                    result = {
+                        "items": [], "total": 0, "query": query,
+                        "not_found": True, "suggestions": suggestions,
+                        "message": f"'{query}' niet gevonden. Bedoelt u misschien: {names}?"
+                    }
+                else:
+                    result = {
+                        "items": [], "total": 0, "query": query,
+                        "not_found": True, "suggestions": [],
+                        "message": f"'{query}' niet gevonden. Vraag de klant het anders te omschrijven."
+                    }
 
         results.append({"toolCallId": tool_call_id, "result": result})
 
@@ -1702,6 +1723,146 @@ async def vapi_receive_order(request: Request):
         "order_id": order_id,
         "total": pricing["formatted_total"],
         "total_spoken": pricing.get("spoken_total", format_price_spoken(pricing["total"]))
+    }
+
+    return format_vapi_response(tool_call_id, result)
+
+
+# ============================================
+# NIEUWE NEXT-LEVEL ENDPOINTS
+# ============================================
+
+@app.get("/tools/menu_categories")
+async def get_menu_categories():
+    """Menu per categorie voor kiosk display"""
+    categories = []
+    for cat_key, items in MENU.items():
+        cat_items = []
+        for name, price in items.items():
+            cat_items.append({
+                "name": name,
+                "price": price,
+                "price_formatted": format_price(price)
+            })
+        categories.append({
+            "key": cat_key,
+            "label": CATEGORY_LABELS.get(cat_key, cat_key.title()),
+            "icon": CATEGORY_ICONS.get(cat_key, ""),
+            "items": cat_items
+        })
+    return {"categories": categories}
+
+
+@app.post("/vapi/tools/get_suggestions")
+async def vapi_get_suggestions(request: Request):
+    """VAPI endpoint: Slimme suggesties op basis van cart inhoud"""
+    raw_body = await request.body()
+    body = json.loads(raw_body) if raw_body else {}
+
+    call_id = get_call_id(request, "vapi", body)
+    tool_calls = extract_vapi_tool_calls(body)
+    tool_call_id = tool_calls[0].get("id", "unknown") if tool_calls else "unknown"
+
+    cart_items = []
+    if call_id in cart_store:
+        cart_items = cart_store[call_id].get("items", [])
+
+    # Bepaal welke categorieën in de cart zitten
+    cart_categories = set()
+    for item in cart_items:
+        found = get_item_with_price(item.get("name", ""))
+        if found:
+            cart_categories.add(found["category"])
+
+    suggestions = []
+
+    # Check: heeft drankje?
+    drink_cats = set(SUGGESTIONS.get("drink_categories", []))
+    has_drink = bool(cart_categories & drink_cats)
+
+    # Check: heeft toetje?
+    dessert_cat = SUGGESTIONS.get("dessert_category", "ijs")
+    has_dessert = dessert_cat in cart_categories
+
+    if not has_drink and len(cart_items) > 0:
+        suggestions.append("Wilt u er een drankje bij? Wij hebben cola, fanta, of sap.")
+
+    # Check item-specifieke triggers
+    for item in cart_items:
+        item_name = item.get("name", "").lower()
+        trigger = SUGGESTIONS.get("item_triggers", {}).get(item_name)
+        if trigger:
+            suggestions.append(trigger)
+
+    if not has_dessert and len(cart_items) >= 2:
+        suggestions.append("Heeft u zin in een ijsje als toetje?")
+
+    # Populaire items per tijdslot
+    current = now_nl()
+    hour = current.hour + current.minute / 60
+    if 11.5 <= hour < 14:
+        slot = "lunch"
+    elif 14 <= hour < 17:
+        slot = "middag"
+    else:
+        slot = "avond"
+
+    popular = POPULAR_ITEMS.get(slot, [])[:3]
+
+    result = {
+        "suggestions": suggestions[:2],
+        "popular_now": popular,
+        "time_slot": slot,
+        "cart_count": len(cart_items)
+    }
+
+    return format_vapi_response(tool_call_id, result)
+
+
+@app.post("/vapi/tools/confirm_order")
+async def vapi_confirm_order(request: Request):
+    """VAPI endpoint: Genereer besteloverzicht voor bevestiging"""
+    raw_body = await request.body()
+    body = json.loads(raw_body) if raw_body else {}
+
+    call_id = get_call_id(request, "vapi", body)
+    tool_calls = extract_vapi_tool_calls(body)
+    tool_call_id = tool_calls[0].get("id", "unknown") if tool_calls else "unknown"
+    arguments = tool_calls[0].get("arguments", {}) if tool_calls else {}
+
+    customer_name = arguments.get("customer_name", "")
+    pickup_time = arguments.get("pickup_time", "")
+
+    if call_id not in cart_store or not cart_store[call_id].get("items"):
+        return format_vapi_response(tool_call_id, {
+            "status": "error",
+            "message": "Geen items in bestelling om te bevestigen"
+        })
+
+    cart = cart_store[call_id]
+    items = normalize_cart_items(cart["items"])
+
+    # Maak leesbaar overzicht
+    item_lines = []
+    for item in items:
+        qty = coerce_quantity(item.get("qty", 1))
+        name = item.get("name", "")
+        line = f"{qty}x {name}"
+        notes = item.get("notes")
+        if notes:
+            line += f" ({notes})"
+        item_lines.append(line)
+
+    summary = ", ".join(item_lines)
+    item_count = sum(coerce_quantity(i.get("qty", 1)) for i in items)
+
+    result = {
+        "status": "ok",
+        "summary": summary,
+        "item_count": item_count,
+        "customer_name": customer_name,
+        "pickup_time": pickup_time,
+        "ready_to_send": True
     }
 
     return format_vapi_response(tool_call_id, result)

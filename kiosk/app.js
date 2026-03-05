@@ -301,6 +301,19 @@ function handleToolCalls(message) {
         calls.push(message.toolCall);
     }
 
+    // Live status berichten per tool
+    const TOOL_STATUS = {
+        'search_menu': 'Zoekt in menu...',
+        'add_to_cart': 'Voegt toe aan bestelling...',
+        'update_cart': 'Bestelling aanpassen...',
+        'remove_from_cart': 'Item verwijderen...',
+        'check_pickup_time': 'Afhaaltijd controleren...',
+        'confirm_order': 'Besteloverzicht maken...',
+        'send_order': 'Bestelling verzenden...',
+        'get_suggestions': 'Suggesties ophalen...',
+        'get_opening_hours': 'Openingstijden checken...',
+    };
+
     if (calls.length > 0) {
         calls.forEach(call => {
             const toolName = call.function?.name || call.name || 'onbekend';
@@ -312,6 +325,12 @@ function handleToolCalls(message) {
                 toolCallNameById.set(toolCallId, toolName);
             }
 
+            // Live status indicator
+            const statusMsg = TOOL_STATUS[toolName];
+            if (statusMsg) {
+                updateAssistantStatus('thinking', statusMsg);
+            }
+
             // Parse arguments if string
             let parsedArgs = args;
             if (typeof args === 'string') {
@@ -320,7 +339,6 @@ function handleToolCalls(message) {
 
             switch (toolName) {
                 case 'search_menu':
-                    // Geen bericht - te langzaam
                     break;
                 case 'add_to_cart':
                     // Voeg item direct toe aan lokale cart voor snelle UI update
@@ -333,7 +351,7 @@ function handleToolCalls(message) {
                 case 'get_cart':
                     break;
                 case 'send_order':
-                    addSystemMessage('📤 Bestelling verzenden...');
+                    addSystemMessage('Bestelling verzenden...');
                     break;
             }
         });
@@ -361,6 +379,7 @@ function addItemToLocalCart(itemName, quantity) {
     // Update display
     renderOrderDisplay();
     showToast(`${quantity}x ${itemName} toegevoegd!`, 'success', 2500);
+    playSound('add');
     // Fallback: haal prijs direct op via webhook als VAPI result event ontbreekt
     void enrichLocalItemPrice(itemName);
     console.log('Cart updated:', currentOrder);
@@ -453,29 +472,37 @@ function applyPriceToMatchingCartItem(originalName, resolvedName, price) {
     }
 }
 
+let previousCartNames = new Set();
+
 function renderOrderDisplay() {
     if (!orderItems || !orderTotal) return;
 
     if (currentOrder.length === 0) {
         orderItems.innerHTML = '<li class="empty-order"><span class="empty-icon">🛒</span><span>Uw bestelling verschijnt hier</span></li>';
         orderTotal.textContent = '';
+        previousCartNames.clear();
     } else {
         orderItems.innerHTML = currentOrder.map(item => {
-            const priceDisplay = item.price > 0 
+            const priceDisplay = item.price > 0
                 ? formatEuroDisplay(item.price * item.quantity)
                 : '';
+            const isNew = !previousCartNames.has(item.name.toLowerCase());
             return `
-                <li>
+                <li class="${isNew ? 'slide-in' : ''}">
                     <span class="item-qty">${item.quantity}x</span>
                     <span class="item-name">${item.name}</span>
                     <span class="item-price">${priceDisplay}</span>
                 </li>
             `;
         }).join('');
-        
+
+        previousCartNames = new Set(currentOrder.map(i => i.name.toLowerCase()));
+
         const totalFromItems = currentOrder.reduce((sum, item) => sum + (item.price * item.quantity), 0);
         const total = orderTotalAmount > 0 ? orderTotalAmount : totalFromItems;
         orderTotal.textContent = total > 0 ? `Totaal: ${formatEuroDisplay(total)}` : 'Totaal: -';
+        orderTotal.classList.add('total-pulse');
+        setTimeout(() => orderTotal.classList.remove('total-pulse'), 500);
     }
 }
 
@@ -535,6 +562,10 @@ function handleToolCallResult(message) {
             }));
             orderTotalAmount = Number(result.total || 0);
             renderOrderDisplay();
+        }
+
+        if (toolName === 'send_order' && result && result.status === 'ok') {
+            showOrderConfirmation(result);
         }
     });
 }
@@ -1052,6 +1083,134 @@ function addConnectionStatus(status) {
 }
 
 // ============================================
+// SOUND DESIGN (Web Audio API)
+// ============================================
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+let audioCtx = null;
+
+function getAudioContext() {
+    if (!audioCtx) audioCtx = new AudioCtx();
+    return audioCtx;
+}
+
+function playSound(type) {
+    try {
+        const ctx = getAudioContext();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        switch (type) {
+            case 'add':
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(880, ctx.currentTime);
+                osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.1);
+                gain.gain.setValueAtTime(0.08, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+                osc.start(ctx.currentTime);
+                osc.stop(ctx.currentTime + 0.25);
+                break;
+            case 'success':
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(523, ctx.currentTime);
+                osc.frequency.setValueAtTime(659, ctx.currentTime + 0.15);
+                osc.frequency.setValueAtTime(784, ctx.currentTime + 0.3);
+                gain.gain.setValueAtTime(0.1, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+                osc.start(ctx.currentTime);
+                osc.stop(ctx.currentTime + 0.5);
+                break;
+            case 'error':
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(200, ctx.currentTime);
+                gain.gain.setValueAtTime(0.06, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+                osc.start(ctx.currentTime);
+                osc.stop(ctx.currentTime + 0.2);
+                break;
+        }
+    } catch (e) {
+        console.log('Sound failed:', e);
+    }
+}
+
+// ============================================
+// MENU BROWSER
+// ============================================
+let menuData = null;
+
+async function loadMenuCategories() {
+    try {
+        const response = await fetch(`${WEBHOOK_BASE_URL}/tools/menu_categories`);
+        if (!response.ok) return;
+        const data = await response.json();
+        menuData = data.categories;
+        renderMenuTabs();
+        if (menuData.length > 0) selectMenuTab(0);
+    } catch (error) {
+        console.log('Menu load failed:', error);
+    }
+}
+
+function renderMenuTabs() {
+    const tabsContainer = document.getElementById('menuTabs');
+    if (!tabsContainer || !menuData) return;
+
+    tabsContainer.innerHTML = menuData.map((cat, i) =>
+        `<button class="menu-tab${i === 0 ? ' active' : ''}" onclick="selectMenuTab(${i})" data-index="${i}">
+            <span>${cat.icon}</span><span>${cat.label}</span>
+        </button>`
+    ).join('');
+}
+
+function selectMenuTab(index) {
+    document.querySelectorAll('.menu-tab').forEach(t => t.classList.remove('active'));
+    document.querySelector(`.menu-tab[data-index="${index}"]`)?.classList.add('active');
+
+    const grid = document.getElementById('menuItemsGrid');
+    if (!grid || !menuData || !menuData[index]) return;
+
+    grid.innerHTML = menuData[index].items.map(item =>
+        `<div class="menu-item-card">
+            <span class="menu-item-name">${item.name}</span>
+            <span class="menu-item-price">${item.price_formatted}</span>
+        </div>`
+    ).join('');
+}
+
+// ============================================
+// ORDER BEVESTIGINGSSCHERM
+// ============================================
+function showOrderConfirmation(orderResult) {
+    const overlay = document.getElementById('orderConfirmation');
+    if (!overlay) return;
+
+    document.getElementById('confirmOrderId').textContent =
+        `Bestelnummer: ${orderResult.order_id || ''}`;
+
+    const itemsEl = document.getElementById('confirmItems');
+    itemsEl.innerHTML = currentOrder.map(item => {
+        const price = item.price > 0 ? formatEuroDisplay(item.price * item.quantity) : '';
+        return `<div class="conf-item"><span>${item.quantity}x ${item.name}</span><span>${price}</span></div>`;
+    }).join('');
+
+    const total = orderTotalAmount || currentOrder.reduce((s, i) => s + (i.price * i.quantity), 0);
+    document.getElementById('confirmTotal').textContent =
+        total > 0 ? `Totaal: ${formatEuroDisplay(total)}` : '';
+
+    document.getElementById('confirmPickup').textContent = '';
+    document.getElementById('confirmName').textContent = '';
+
+    overlay.classList.add('show');
+    playSound('success');
+
+    setTimeout(() => {
+        overlay.classList.remove('show');
+    }, 15000);
+}
+
+// ============================================
 // INITIALISATIE
 // ============================================
 document.addEventListener('DOMContentLoaded', () => {
@@ -1061,6 +1220,9 @@ document.addEventListener('DOMContentLoaded', () => {
     statusText.textContent = 'SDK LADEN...';
 
     if (muteButton) muteButton.style.display = 'none';
+
+    // Laad menu voor browser panel
+    loadMenuCategories();
 
     if (window.vapiSDKLoaded) {
         console.log('SDK already loaded, initializing...');

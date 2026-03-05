@@ -229,6 +229,47 @@ def get_vapi_tools(webhook_url: str) -> list:
             "type": "function",
             "async": False,
             "function": {
+                "name": "get_suggestions",
+                "description": "Haal slimme suggesties op gebaseerd op wat er in de bestelling zit. Gebruik na elke toevoeging aan de cart. Geeft suggesties voor ontbrekende categorieën zoals drankje of toetje, en populaire items.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }
+            },
+            "server": {
+                "url": f"{webhook_url}/vapi/tools/get_suggestions"
+            }
+        },
+        {
+            "type": "function",
+            "async": False,
+            "function": {
+                "name": "confirm_order",
+                "description": "Maak een besteloverzicht aan om voor te lezen aan de klant ter bevestiging. Gebruik ALTIJD voordat je send_order aanroept. Lees het overzicht voor en vraag of het klopt.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "customer_name": {
+                            "type": "string",
+                            "description": "Naam van de klant"
+                        },
+                        "pickup_time": {
+                            "type": "string",
+                            "description": "Afhaaltijd in HH:MM format"
+                        }
+                    },
+                    "required": ["customer_name", "pickup_time"]
+                }
+            },
+            "server": {
+                "url": f"{webhook_url}/vapi/tools/confirm_order"
+            }
+        },
+        {
+            "type": "function",
+            "async": False,
+            "function": {
                 "name": "handoff_to_human",
                 "description": "Verbind door naar een medewerker. Gebruik wanneer de klant geen bestelling wil plaatsen, om een medewerker vraagt, of een vraag heeft die je niet kunt beantwoorden.",
                 "parameters": {

@@ -755,3 +755,78 @@ def calculate_order_total(items: list) -> dict:
         "formatted_total": format_price(total),
         "spoken_total": format_price_spoken(total)
     }
+
+
+# ============================================
+# SUGGESTIE-ENGINE DATA
+# ============================================
+
+SUGGESTIONS = {
+    # Als klant bestelt uit deze categorie → stel deze categorieën voor
+    "category_pairings": {
+        "friet": ["frisdranken", "snack"],
+        "snack": ["frisdranken", "friet"],
+        "hamburgers": ["frisdranken", "friet"],
+        "broodje": ["frisdranken"],
+        "broodjes": ["frisdranken"],
+        "menu": ["frisdranken", "ijs"],
+        "gehaktbal": ["friet", "frisdranken"],
+    },
+    # Specifieke item triggers
+    "item_triggers": {
+        "friet zonder": "Wilt u er een saus bij? Wij hebben speciaal, oorlog en sate.",
+        "friet groot": "Wilt u er een saus bij?",
+        "kinder frites": "Wilt u er een capri sun bij?",
+    },
+    # Categorieën die als drankje tellen
+    "drink_categories": ["frisdranken", "warme dranken", "milkshakes"],
+    # Categorie die als toetje telt
+    "dessert_category": "ijs",
+}
+
+# Populaire items per tijdslot
+POPULAR_ITEMS = {
+    "lunch": [
+        "friet speciaal",
+        "kroket rundvlees",
+        "frikandel speciaal",
+        "broodje carpaccio",
+        "blikje coca cola",
+    ],
+    "middag": [
+        "softijs groot",
+        "friet speciaal",
+        "milkshake groot",
+        "kinder frites",
+        "ijscoupe",
+    ],
+    "avond": [
+        "boerenschnitzel menu",
+        "friet speciaal groot",
+        "achterhoekburger menu",
+        "sate menu",
+        "blikje coca cola",
+    ],
+}
+
+# Label mapping voor categorieën (kiosk display)
+CATEGORY_LABELS = {
+    "friet": "Friet",
+    "snack": "Snacks",
+    "ijs": "IJs",
+    "gehaktbal": "Warm",
+    "broodjes": "Broodjes",
+    "hamburgers": "Burgers",
+    "broodje": "Belegde Broodjes",
+    "menu": "Menu's",
+    "frisdranken": "Frisdranken",
+    "warme dranken": "Warme Dranken",
+    "milkshakes": "Milkshakes",
+}
+
+CATEGORY_ICONS = {
+    "friet": "\U0001F35F", "snack": "\U0001F9C6", "ijs": "\U0001F366",
+    "gehaktbal": "\U0001F356", "broodjes": "\U0001F956", "hamburgers": "\U0001F354",
+    "broodje": "\U0001F96A", "menu": "\U0001F4CB", "frisdranken": "\U0001F964",
+    "warme dranken": "\u2615", "milkshakes": "\U0001F95B",
+}

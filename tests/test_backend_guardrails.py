@@ -7,8 +7,9 @@ from fastapi.testclient import TestClient
 import webhook_order
 from opening_hours import is_pickup_time_valid, is_open_now, now_nl, NL_TZ
 from menu import (
-    normalize_query, search_item, smart_search_item, get_item_with_price,
-    get_item_price, format_price, format_price_spoken, calculate_order_total
+    normalize_query, search_item, smart_search_item, fuzzy_search_item,
+    get_item_with_price, get_item_price, format_price, format_price_spoken,
+    calculate_order_total, SUGGESTIONS, POPULAR_ITEMS, CATEGORY_LABELS, CATEGORY_ICONS
 )
 
 
@@ -424,6 +425,172 @@ class BackendGuardrailsTests(unittest.TestCase):
         result = resp.json()["results"][0]["result"]
         self.assertEqual(result["status"], "ok")
         self.assertIn("order_id", result)
+
+
+    # =========================================================================
+    # SUGGESTIE ENGINE
+    # =========================================================================
+    def test_suggestions_data_structure(self):
+        """SUGGESTIONS en POPULAR_ITEMS data structuren zijn compleet"""
+        self.assertIn("category_pairings", SUGGESTIONS)
+        self.assertIn("item_triggers", SUGGESTIONS)
+        self.assertIn("drink_categories", SUGGESTIONS)
+        self.assertIn("dessert_category", SUGGESTIONS)
+        self.assertIsInstance(POPULAR_ITEMS, dict)
+        for slot in ["lunch", "middag", "avond"]:
+            self.assertIn(slot, POPULAR_ITEMS)
+            self.assertGreaterEqual(len(POPULAR_ITEMS[slot]), 3)
+
+    def test_vapi_get_suggestions_empty_cart(self):
+        """Suggesties bij lege cart: geen suggesties, wel populaire items"""
+        response = self.client.post(
+            "/vapi/tools/get_suggestions",
+            json=self._vapi_payload("get_suggestions", {}, call_id="suggest-test-1"),
+        )
+        self.assertEqual(response.status_code, 200)
+        result = response.json()["results"][0]["result"]
+        self.assertIn("suggestions", result)
+        self.assertIn("popular_now", result)
+        self.assertIn("time_slot", result)
+        self.assertEqual(result["cart_count"], 0)
+        # Lege cart → geen suggesties (drankje-suggestie vereist items)
+        self.assertEqual(len(result["suggestions"]), 0)
+
+    def test_vapi_get_suggestions_with_friet(self):
+        """Suggesties bij friet in cart: suggereert drankje"""
+        call_id = "suggest-test-2"
+        # Voeg friet toe
+        self.client.post(
+            "/vapi/tools/add_to_cart",
+            json=self._vapi_payload("add_to_cart", {"item": "friet speciaal", "quantity": 1}, call_id=call_id),
+        )
+        response = self.client.post(
+            "/vapi/tools/get_suggestions",
+            json=self._vapi_payload("get_suggestions", {}, call_id=call_id),
+        )
+        self.assertEqual(response.status_code, 200)
+        result = response.json()["results"][0]["result"]
+        self.assertEqual(result["cart_count"], 1)
+        # Moet drankje suggereren
+        self.assertGreaterEqual(len(result["suggestions"]), 1)
+        self.assertTrue(any("drankje" in s.lower() for s in result["suggestions"]))
+
+    # =========================================================================
+    # BEVESTIGINGSSTAP
+    # =========================================================================
+    def test_vapi_confirm_order_with_items(self):
+        """confirm_order geeft samenvatting bij gevulde cart"""
+        call_id = "confirm-test-1"
+        # Voeg items toe
+        self.client.post(
+            "/vapi/tools/add_to_cart",
+            json=self._vapi_payload("add_to_cart", {"item": "friet speciaal", "quantity": 2}, call_id=call_id),
+        )
+        self.client.post(
+            "/vapi/tools/add_to_cart",
+            json=self._vapi_payload("add_to_cart", {"item": "frikandel", "quantity": 1}, call_id=call_id),
+        )
+        response = self.client.post(
+            "/vapi/tools/confirm_order",
+            json=self._vapi_payload("confirm_order", {
+                "customer_name": "Piet",
+                "pickup_time": "15:30"
+            }, call_id=call_id),
+        )
+        self.assertEqual(response.status_code, 200)
+        result = response.json()["results"][0]["result"]
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("summary", result)
+        self.assertIn("friet speciaal", result["summary"])
+        self.assertIn("frikandel", result["summary"])
+        self.assertEqual(result["customer_name"], "Piet")
+        self.assertEqual(result["pickup_time"], "15:30")
+        self.assertTrue(result["ready_to_send"])
+        self.assertEqual(result["item_count"], 3)  # 2 + 1
+
+    def test_vapi_confirm_order_empty_cart(self):
+        """confirm_order geeft error bij lege cart"""
+        response = self.client.post(
+            "/vapi/tools/confirm_order",
+            json=self._vapi_payload("confirm_order", {
+                "customer_name": "Jan",
+                "pickup_time": "14:00"
+            }, call_id="confirm-empty-1"),
+        )
+        self.assertEqual(response.status_code, 200)
+        result = response.json()["results"][0]["result"]
+        self.assertEqual(result["status"], "error")
+        self.assertIn("Geen items", result["message"])
+
+    # =========================================================================
+    # FUZZY SEARCH SUGGESTIES
+    # =========================================================================
+    def test_search_menu_fuzzy_suggestions(self):
+        """Niet-gevonden items via fuzzy geven suggesties terug"""
+        # "satee menu" is niet exact in het menu, maar fuzzy vindt "sate menu"
+        response = self.client.post(
+            "/vapi/tools/search_menu",
+            json=self._vapi_payload("search_menu", {"query": "satee menuu"}),
+        )
+        self.assertEqual(response.status_code, 200)
+        result = response.json()["results"][0]["result"]
+        # Bevat items (match) OF not_found met suggesties — beide zijn valide fuzzy gedrag
+        if result.get("not_found"):
+            self.assertIn("suggestions", result)
+            self.assertIn("message", result)
+
+    def test_search_menu_not_found_structure(self):
+        """Niet-gevonden items hebben correcte response structuur"""
+        response = self.client.post(
+            "/vapi/tools/search_menu",
+            json=self._vapi_payload("search_menu", {"query": "xylofoon taart pizza"}),
+        )
+        self.assertEqual(response.status_code, 200)
+        result = response.json()["results"][0]["result"]
+        self.assertTrue(result.get("not_found", False))
+        self.assertEqual(result["items"], [])
+        self.assertIn("message", result)
+        self.assertIn("suggestions", result)
+
+    def test_fuzzy_search_item_direct(self):
+        """fuzzy_search_item vindt items ondanks typfouten"""
+        results = fuzzy_search_item("kroket", threshold=0.4)
+        self.assertGreaterEqual(len(results), 1)
+        names = [r["name"] for r in results]
+        self.assertTrue(any("kroket" in n for n in names))
+
+    # =========================================================================
+    # MENU CATEGORIES ENDPOINT
+    # =========================================================================
+    def test_menu_categories_endpoint(self):
+        """GET /tools/menu_categories geeft categorieën met items en prijzen"""
+        response = self.client.get("/tools/menu_categories")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("categories", data)
+        categories = data["categories"]
+        self.assertGreaterEqual(len(categories), 5)  # minstens 5 categorieën
+
+        # Check structuur van eerste categorie
+        first = categories[0]
+        self.assertIn("key", first)
+        self.assertIn("label", first)
+        self.assertIn("icon", first)
+        self.assertIn("items", first)
+        self.assertGreaterEqual(len(first["items"]), 1)
+
+        # Items hebben naam, prijs, en geformateerde prijs
+        item = first["items"][0]
+        self.assertIn("name", item)
+        self.assertIn("price", item)
+        self.assertIn("price_formatted", item)
+
+    def test_category_labels_and_icons_complete(self):
+        """Alle menu categorieën hebben een label en icon"""
+        from menu import MENU
+        for cat_key in MENU.keys():
+            self.assertIn(cat_key, CATEGORY_LABELS, f"Geen label voor categorie: {cat_key}")
+            self.assertIn(cat_key, CATEGORY_ICONS, f"Geen icon voor categorie: {cat_key}")
 
 
 if __name__ == "__main__":
