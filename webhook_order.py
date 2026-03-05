@@ -26,13 +26,16 @@ IS_PRODUCTION = os.getenv("PRODUCTION", "false").lower() == "true"
 LOG_LEVEL = logging.WARNING if IS_PRODUCTION else logging.INFO
 
 # Setup logging - minder verbose in production
+_log_handlers = [logging.StreamHandler()]
+try:
+    _log_handlers.append(logging.FileHandler('webhook_order.log'))
+except OSError:
+    pass  # Read-only filesystem (Vercel)
+
 logging.basicConfig(
     level=LOG_LEVEL,
     format='%(asctime)s - %(levelname)s - %(message)s' if IS_PRODUCTION else '%(asctime)s - %(name)s - %(levelname)s - [%(funcName)s:%(lineno)d] - %(message)s',
-    handlers=[
-        logging.FileHandler('webhook_order.log'),
-        logging.StreamHandler()
-    ]
+    handlers=_log_handlers
 )
 logger = logging.getLogger(__name__)
 

@@ -65,12 +65,12 @@ VAPI_TRANSCRIBER_CONFIG = {
     "vadTurnoff": 350
 }
 
-# Webhook URL - Railway deployment (PRODUCTIE)
-WEBHOOK_URL = os.getenv("VAPI_WEBHOOK_URL") or os.getenv("RETELL_WEBHOOK_URL") or "https://dorpspomp-webhook-production.up.railway.app"
+# Webhook URL - Vercel deployment (PRODUCTIE)
+WEBHOOK_URL = os.getenv("VAPI_WEBHOOK_URL") or os.getenv("RETELL_WEBHOOK_URL") or "https://dorpspomp-webhook.vercel.app"
 
 # Verify webhook URL is correct
-if "railway.app" not in WEBHOOK_URL:
-    print(f"⚠️  WARNING: WEBHOOK_URL does not point to Railway: {WEBHOOK_URL}")
+if "vercel.app" not in WEBHOOK_URL:
+    print(f"⚠️  WARNING: WEBHOOK_URL does not point to Vercel: {WEBHOOK_URL}")
 
 # Assistant ID bestand voor persistentie
 VAPI_ASSISTANT_ID_FILE = "vapi_assistant_id.txt"
