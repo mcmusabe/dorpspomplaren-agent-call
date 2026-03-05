@@ -33,9 +33,9 @@ VAPI_VOICE_CONFIG = {
     "voiceId": "XJa38TJgDqYhj5mYbSJA",
     "model": "eleven_multilingual_v2",
     "language": "nl",
-    "stability": 0.72,
-    "similarityBoost": 0.86,
-    "style": 0.15,
+    "stability": 0.90,
+    "similarityBoost": 0.80,
+    "style": 0.0,
     "useSpeakerBoost": False,
     "optimizeStreamingLatency": 2,
     "speed": 0.98
