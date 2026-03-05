@@ -1,8 +1,15 @@
 """
 Openingstijden checker voor De Dorpspomp & Dieks IJssalon
+
+Gebruikt Europe/Amsterdam timezone zodat openingstijden correct zijn,
+ook als de server in UTC draait (bijv. Railway).
 """
 
 from datetime import datetime, time
+from zoneinfo import ZoneInfo
+
+# Nederlandse tijdzone - ALTIJD gebruiken ipv datetime.now()
+NL_TZ = ZoneInfo("Europe/Amsterdam")
 
 OPENING_HOURS = {
     "monday": {"open": None, "close": None, "closed": True},
@@ -15,21 +22,25 @@ OPENING_HOURS = {
 }
 
 
+def now_nl() -> datetime:
+    """Huidige tijd in Nederlandse tijdzone"""
+    return datetime.now(NL_TZ)
+
+
 def get_day_name(dt: datetime = None) -> str:
     """Haal de dag naam op (in English voor dict lookup)"""
     if dt is None:
-        dt = datetime.now()
+        dt = now_nl()
     return dt.strftime("%A").lower()
 
 
 def is_open_now() -> dict:
     """Check of de zaak nu open is"""
-    now = datetime.now()
+    now = now_nl()
     day = get_day_name(now)
     hours = OPENING_HOURS.get(day)
 
     if hours["closed"]:
-        # Find next open day
         next_open = get_next_opening()
         return {
             "open": False,
@@ -62,9 +73,9 @@ def is_open_now() -> dict:
 
 def get_next_opening() -> dict:
     """Vind de volgende keer dat de zaak open gaat"""
-    now = datetime.now()
+    now = now_nl()
     day_names = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
-    for i in range(1, 8):  # Check next 7 days
+    for i in range(1, 8):
         future_day_idx = (now.weekday() + i) % 7
         day_name = day_names[future_day_idx]
 
@@ -99,18 +110,17 @@ def is_pickup_time_valid(pickup_time: str, pickup_date: datetime = None) -> dict
 
     Args:
         pickup_time: string in format "HH:MM" (e.g., "18:30")
-        pickup_date: datetime object (default: today)
+        pickup_date: datetime object (default: vandaag NL tijd)
 
     Returns:
         dict met 'valid' (bool) en 'reason' (str)
     """
     if pickup_date is None:
-        pickup_date = datetime.now()
+        pickup_date = now_nl()
 
     day = get_day_name(pickup_date)
     hours = OPENING_HOURS.get(day)
 
-    # Check if closed that day
     if hours["closed"]:
         next_open = get_next_opening()
         return {
@@ -122,28 +132,36 @@ def is_pickup_time_valid(pickup_time: str, pickup_date: datetime = None) -> dict
     try:
         pickup_hour, pickup_min = map(int, pickup_time.split(":"))
         pickup_t = time(pickup_hour, pickup_min)
-    except:
+    except (ValueError, AttributeError):
         return {
             "valid": False,
-            "reason": "Ongeldige tijd format. Gebruik HH:MM (bijv. 18:30)"
+            "reason": "Ongeldige tijd. Gebruik HH:MM, bijvoorbeeld 18:30"
         }
 
-    # Check if before opening
+    # Check te vroeg
     if pickup_t < hours["open"]:
         return {
             "valid": False,
-            "reason": f"We openen pas om {hours['open'].strftime('%H:%M')}. Kun je het later ophalen?"
+            "reason": f"We openen pas om {hours['open'].strftime('%H:%M')}. Kunt u het later ophalen?"
         }
 
-    # Check if after closing (give 15 min buffer before close)
+    # Check te laat (15 min buffer voor sluiting)
     close_buffer = time(hours["close"].hour, max(0, hours["close"].minute - 15))
     if pickup_t > close_buffer:
         return {
             "valid": False,
-            "reason": f"We sluiten om {hours['close'].strftime('%H:%M')}. Kun je het eerder ophalen?"
+            "reason": f"We sluiten om {hours['close'].strftime('%H:%M')}. Kunt u het eerder ophalen?"
         }
 
-    # Valid!
+    # Check of tijd niet in het verleden ligt
+    now = now_nl()
+    current_time = now.time()
+    if pickup_t < current_time:
+        return {
+            "valid": False,
+            "reason": f"Het is al {current_time.strftime('%H:%M')}. Kunt u een later tijdstip kiezen?"
+        }
+
     return {
         "valid": True,
         "reason": "Tijd is geldig"

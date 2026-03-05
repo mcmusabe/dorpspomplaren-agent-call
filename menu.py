@@ -134,39 +134,86 @@ MENU = {
 }
 
 # Synoniemen voor menu items (klanten zeggen vaak andere woorden)
-# Uitgebreide lijst met veelvoorkomende variaties en typfouten
+# Uitgebreide lijst met veelvoorkomende variaties, typfouten en spreektaal
 SYNONYMS = {
-    # Friet variaties
+    # === FRIET VARIATIES ===
     "patat": "friet",
     "patatje": "friet",
-    "pata": "friet",  # typo
-    "pataat": "friet",  # typo
+    "pata": "friet",
+    "pataat": "friet",
     "frietje": "friet",
     "frites": "friet",
     "frieten": "friet",
-    "fritten": "friet",  # typo
+    "fritten": "friet",
     "french fries": "friet",
-    "frie": "friet",  # afgekapt
+    "frie": "friet",
+    "frietjes": "friet",
+    "patats": "friet",
 
-    # Saus variaties
+    # Friet-combinaties als phrase synonyms
+    "patatje oorlog": "friet oorlog",
+    "patat oorlog": "friet oorlog",
+    "patatje speciaal": "friet speciaal",
+    "patat speciaal": "friet speciaal",
+    "patatje sate": "friet sate",
+    "patat sate": "friet sate",
+    "patatje met": "friet met mayonaise",
+    "patat met": "friet met mayonaise",
+    "patatje zonder": "friet zonder",
+    "patat zonder": "friet zonder",
+    "patatje stoofvlees": "friet stoofvlees",
+    "patat stoofvlees": "friet stoofvlees",
+    "patatje piri piri": "friet piri piri",
+    "patat piri piri": "friet piri piri",
+    "kinderfriet": "kinder frites",
+    "kinderfrietje": "kinder frites",
+    "kinderpatat": "kinder frites",
+    "kinderfrites": "kinder frites",
+
+    # === SAUS VARIATIES ===
     "mayo": "mayonaise",
-    "mayonais": "mayonaise",  # zonder e
-    "majonaise": "mayonaise",  # andere spelling
+    "mayonais": "mayonaise",
+    "majonaise": "mayonaise",
+    "majo": "mayonaise",
+    "pindasaus": "sate",
+    "pinda": "sate",
+    "satay": "sate",
+    "satesaus": "sate",
+    "curry": "speciaal",
+    "currysaus": "speciaal",
 
-    # Snacks
+    # === SNACKS ===
     "frikadel": "frikandel",
     "frikandellen": "frikandel",
-    "frika": "frikandel",  # afkorting
+    "frika": "frikandel",
+    "frikandeltje": "frikandel",
+    "frik": "frikandel",
     "kroketje": "kroket",
     "kroketten": "kroket",
     "croquette": "kroket",
     "bitterbal": "gehaktbal",
+    "gehaktballetje": "gehaktbal",
+    "bal gehakt": "gehaktbal",
+    "bamihap": "bamischijf",
+    "bami": "bamischijf",
 
-    # Dranken
+    # === KAASSOUFLE ===
+    "souffle": "soufle",
+    "soufflé": "soufle",
+    "kaassouffle": "kaassoufle",
+    "kaassoufflé": "kaassoufle",
+    "soefle": "soufle",
+    "kaas souffle": "kaassoufle",
+    "kaas soufle": "kaassoufle",
+    "souffleetje": "kaassoufle",
+
+    # === DRANKEN ===
     "cola": "coca cola",
     "coke": "coca cola",
     "cocacola": "coca cola",
     "pepsi": "coca cola",
+    "colaatje": "coca cola",
+    "cola zero": "coca cola zero",
     "fanta": "blikje fanta",
     "sprite": "blikje sprite",
     "rivella": "blikje rivella",
@@ -176,31 +223,48 @@ SYNONYMS = {
     "fuzetea": "blikje fuze tea",
     "ice tea": "blikje fuze tea",
     "icetea": "blikje fuze tea",
+    "ijsthee": "blikje fuze tea",
     "cassis": "blikje cassis",
     "sinas": "blikje fanta",
     "sinaasappel": "jus d'orange",
     "jus": "jus d'orange",
     "appel": "appelsap",
+    "redbull": "red bull",
 
-    # IJs
+    # === WARME DRANKEN ===
+    "cappucino": "cappuccino",
+    "capuccino": "cappuccino",
+    "cappu": "cappuccino",
+    "latte": "latte macchiato",
+    "koffieverkeerd": "koffie verkeerd",
+    "bakkie": "koffie",
+    "kopje koffie": "koffie",
+    "kopje thee": "thee",
+
+    # === IJS ===
     "icecream": "ijs",
     "ijsje": "ijs",
     "bolletje": "bol",
     "bolletjes": "bollen",
     "ijsbolletje": "ijs",
+    "ijsbol": "ijs 1 bol",
     "softice": "softijs",
     "soft ijs": "softijs",
-    "slagroom": "softijs",
+    "coupe": "ijscoupe",
 
-    # Hamburgers
+    # === HAMBURGERS ===
     "cheeseburger": "dorpspomp kaas",
     "cheese burger": "dorpspomp kaas",
     "kaashamburger": "dorpspomp kaas",
+    "kaas hamburger": "dorpspomp kaas",
     "burger": "dorpspomp",
     "hamburger": "dorpspomp",
     "hamburgertje": "dorpspomp",
+    "kipburger": "kip",
+    "kip burger": "kip",
+    "achterhoekse burger": "achterhoek",
 
-    # Broodjes
+    # === BROODJES ===
     "broodje kroket": "kroket",
     "broodje frikandel": "frikandel",
     "broodje bal": "bal",
@@ -209,35 +273,44 @@ SYNONYMS = {
     "broodje warme kip": "warme kip",
     "broodje kip": "warme kip",
 
-    # Milkshakes
+    # === OVERIGE SNACKS ===
+    "nugget": "kipnuggets",
+    "nuggets": "kipnuggets",
+    "kipnugget": "kipnuggets",
+    "chicken nuggets": "kipnuggets",
+    "satestokjes": "kipsatestokjes",
+    "sate stokjes": "kipsatestokjes",
+    "kipsate": "kipsatestokjes",
+    "kipkorn": "kipcorn",
+    "kipkornnetje": "kipcorn",
+    "loempia": "loempia kip",
+    "berenhap": "berehap",
+    "beren hap": "berehap",
+    "spekberehap": "spek berehap",
+    "super berehap": "superberehap",
+    "loarnse": "loarnse spies",
+    "mexicano's": "mexicano",
+
+    # === MILKSHAKES ===
     "shake": "milkshake",
     "milkshakes": "milkshake",
+    "milkshake klein": "klein",
+    "milkshake medium": "medium",
+    "milkshake groot": "groot",
 
-    # Kaassoufle variaties
-    "souffle": "soufle",
-    "soufflé": "soufle",
-    "kaassouffle": "kaassoufle",
-    "kaassoufflé": "kaassoufle",
-    "soefle": "soufle",
-    "kaas souffle": "kaassoufle",
+    # === MENU'S ===
+    "boerenschnitzel menu": "boerenschnitzel",
+    "zigeunerschnitzel menu": "zigeunerschnitzel",
+    "sate menu": "sate",
+    "gehaktbal menu": "gehaktbal",
+    "stoofpotje menu": "stoofpotje",
 
-    # Koffie variaties
-    "cappucino": "cappuccino",  # typo
-    "capuccino": "cappuccino",  # typo
-    "latte": "latte macchiato",
-
-    # Grootte variaties
+    # === GROOTTE VARIATIES ===
     "grote": "groot",
     "kleine": "klein",
     "middelgroot": "medium",
     "middel": "medium",
-
-    # Overige
-    "nugget": "kipnuggets",
-    "nuggets": "kipnuggets",
-    "kipnugget": "kipnuggets",
-    "satestokjes": "kipsatestokjes",
-    "sate stokjes": "kipsatestokjes",
+    "normaal": "klein",
 }
 
 # =============================================================================

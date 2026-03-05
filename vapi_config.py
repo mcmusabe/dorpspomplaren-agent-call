@@ -1,5 +1,5 @@
 """
-VAPI configuratie voor algemene bestel-demo
+VAPI configuratie voor De Dorpspomp & Dieks IJssalon
 """
 
 import os
@@ -11,10 +11,10 @@ VAPI_PUBLIC_KEY = os.getenv("VAPI_PUBLIC_KEY", "66ce61e6-4711-4e6d-a4b8-2c1f87f3
 # VAPI API Base URL
 VAPI_API_URL = "https://api.vapi.ai"
 
-# Business informatie (gedeeld met Retell)
+# Business informatie
 BUSINESS_INFO = {
-    "name": "Algemene Bestel Demo",
-    "address": "Demo locatie",
+    "name": "De Dorpspomp & Dieks IJssalon",
+    "address": "Holterweg 1, Laren (Gld)",
     "phone": None,
     "opening_hours": {
         "monday": {"open": None, "close": None, "closed": True},

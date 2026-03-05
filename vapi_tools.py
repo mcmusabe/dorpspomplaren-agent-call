@@ -1,18 +1,10 @@
 """
 VAPI Tool definities voor De Dorpspomp & Dieks IJssalon
-Tools in VAPI format (verschilt van Retell format)
 """
 
 
 def get_vapi_tools(webhook_url: str) -> list:
-    """
-    Retourneert tools in VAPI format.
-
-    VAPI gebruikt:
-    - type: "function" met nested "function" object
-    - server.url voor HTTP endpoints
-    - async: true voor server-side tools
-    """
+    """Retourneert tools in VAPI format."""
 
     if not webhook_url:
         return []
@@ -23,7 +15,7 @@ def get_vapi_tools(webhook_url: str) -> list:
             "async": False,
             "function": {
                 "name": "get_menu",
-                "description": "Haal het volledige menu op met alle categorieen (friet, snacks, ijs, dranken). Gebruik als klant vraagt wat er op het menu staat.",
+                "description": "Haal het volledige menu op met alle categorieën en items. Gebruik wanneer de klant vraagt wat er te bestellen is of het menu wil zien.",
                 "parameters": {
                     "type": "object",
                     "properties": {},
@@ -39,13 +31,13 @@ def get_vapi_tools(webhook_url: str) -> list:
             "async": False,
             "function": {
                 "name": "search_menu",
-                "description": "Zoek items in het menu op naam. GEBRUIK DEZE TOOL wanneer klant iets wil bestellen zoals friet, snack, ijs of drinken.",
+                "description": "Zoek een specifiek item in het menu op naam. GEBRUIK DEZE TOOL ALTIJD voordat je add_to_cart aanroept, om de exacte itemnaam te vinden. Voorbeelden: 'friet speciaal', 'kroket', 'cola', 'softijs'.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "query": {
                             "type": "string",
-                            "description": "Wat de klant wil bestellen (bijv. 'friet', 'frikandel', 'cola', 'ijsje')"
+                            "description": "Wat de klant wil bestellen, zo letterlijk mogelijk (bijv. 'friet speciaal groot', 'frikandel', 'blikje cola', 'ijs 2 bollen')"
                         }
                     },
                     "required": ["query"]
@@ -61,18 +53,22 @@ def get_vapi_tools(webhook_url: str) -> list:
             "async": False,
             "function": {
                 "name": "add_to_cart",
-                "description": "Voeg item toe aan bestelling.",
+                "description": "Voeg een item toe aan de bestelling. Gebruik ALTIJD eerst search_menu om de exacte itemnaam te vinden. Als het item niet gevonden wordt, krijg je status 'not_found' terug.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "item": {
                             "type": "string",
-                            "description": "Item naam"
+                            "description": "Exacte itemnaam zoals gevonden via search_menu (bijv. 'friet speciaal', 'kroket rundvlees', 'blikje coca cola')"
                         },
                         "quantity": {
                             "type": "integer",
-                            "description": "Aantal",
+                            "description": "Aantal stuks (standaard 1)",
                             "default": 1
+                        },
+                        "notes": {
+                            "type": "string",
+                            "description": "Optionele opmerking bij dit item (bijv. 'extra krokant', 'zonder ui')"
                         }
                     },
                     "required": ["item"]
@@ -88,7 +84,7 @@ def get_vapi_tools(webhook_url: str) -> list:
             "async": False,
             "function": {
                 "name": "get_cart",
-                "description": "Haal de huidige bestelling op om te controleren wat er in zit.",
+                "description": "Bekijk wat er in de huidige bestelling zit. Geeft een lijst van items met naam en aantal.",
                 "parameters": {
                     "type": "object",
                     "properties": {},
@@ -104,7 +100,7 @@ def get_vapi_tools(webhook_url: str) -> list:
             "async": False,
             "function": {
                 "name": "update_cart",
-                "description": "Wijzig het aantal van een item in de bestelling.",
+                "description": "Wijzig het aantal van een item dat al in de bestelling zit.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -130,13 +126,13 @@ def get_vapi_tools(webhook_url: str) -> list:
             "async": False,
             "function": {
                 "name": "remove_from_cart",
-                "description": "Verwijder een item uit de bestelling.",
+                "description": "Verwijder een item volledig uit de bestelling.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "item": {
                             "type": "string",
-                            "description": "Naam van het item om te verwijderen (bijv. 'friet speciaal', 'frikandel')"
+                            "description": "Naam van het item om te verwijderen"
                         }
                     },
                     "required": ["item"]
@@ -151,13 +147,13 @@ def get_vapi_tools(webhook_url: str) -> list:
             "async": False,
             "function": {
                 "name": "check_pickup_time",
-                "description": "Controleer of een afhaaltijd geldig is (binnen openingstijden).",
+                "description": "Controleer of een afhaaltijd geldig is (binnen openingstijden en niet in het verleden). Geeft een melding als de tijd ongeldig is.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "pickup_time": {
                             "type": "string",
-                            "description": "Afhaaltijd in HH:MM format (bijv. '18:30')"
+                            "description": "Afhaaltijd in HH:MM format (bijv. '14:30', '18:00')"
                         }
                     },
                     "required": ["pickup_time"]
@@ -172,7 +168,7 @@ def get_vapi_tools(webhook_url: str) -> list:
             "async": False,
             "function": {
                 "name": "send_order",
-                "description": "Verstuur de bestelling. Gebruik ALLEEN nadat klant heeft bevestigd.",
+                "description": "Verstuur de definitieve bestelling. Gebruik ALLEEN nadat de klant naam, afhaaltijd en items heeft bevestigd. Haalt items automatisch uit de cart.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -186,11 +182,11 @@ def get_vapi_tools(webhook_url: str) -> list:
                         },
                         "pickup_time": {
                             "type": "string",
-                            "description": "Afhaaltijd in HH:MM format"
+                            "description": "Bevestigde afhaaltijd in HH:MM format"
                         },
                         "items": {
                             "type": "array",
-                            "description": "Bestelde items",
+                            "description": "Bestelde items (wordt automatisch uit cart gehaald als leeg)",
                             "items": {
                                 "type": "object",
                                 "properties": {
@@ -206,7 +202,7 @@ def get_vapi_tools(webhook_url: str) -> list:
                             "description": "Extra opmerkingen voor de hele bestelling"
                         }
                     },
-                    "required": ["customer_name", "pickup_time", "items"]
+                    "required": ["customer_name", "pickup_time"]
                 }
             },
             "server": {
@@ -218,7 +214,7 @@ def get_vapi_tools(webhook_url: str) -> list:
             "async": False,
             "function": {
                 "name": "get_opening_hours",
-                "description": "Haal de openingstijden op en check of we nu open zijn.",
+                "description": "Haal de openingstijden op en check of we nu open of gesloten zijn. Gebruik bij elke vraag over openingstijden.",
                 "parameters": {
                     "type": "object",
                     "properties": {},
@@ -234,13 +230,13 @@ def get_vapi_tools(webhook_url: str) -> list:
             "async": False,
             "function": {
                 "name": "handoff_to_human",
-                "description": "Verbind direct door naar een medewerker wanneer klant geen bestelling wil plaatsen of om een medewerker vraagt.",
+                "description": "Verbind door naar een medewerker. Gebruik wanneer de klant geen bestelling wil plaatsen, om een medewerker vraagt, of een vraag heeft die je niet kunt beantwoorden.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "reason": {
                             "type": "string",
-                            "description": "Korte reden voor doorverbinden"
+                            "description": "Korte reden voor het doorverbinden"
                         }
                     },
                     "required": []
@@ -256,13 +252,11 @@ def get_vapi_tools(webhook_url: str) -> list:
 
 
 def get_vapi_end_call_tool() -> dict:
-    """
-    VAPI end call tool (built-in, geen server nodig)
-    """
+    """VAPI end call tool (built-in)"""
     return {
         "type": "endCall",
         "function": {
             "name": "end_call",
-            "description": "Beeindig het gesprek nadat de bestelling is verzonden of klant klaar is."
+            "description": "Beëindig het gesprek nadat de bestelling succesvol is verzonden of de klant het gesprek wil beëindigen."
         }
     }
