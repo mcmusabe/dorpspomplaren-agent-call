@@ -1,0 +1,14 @@
+{
+  "builds": [
+    {
+      "src": "webhook_order.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "webhook_order.py"
+    }
+  ]
+}

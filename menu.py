@@ -399,24 +399,41 @@ def normalize_query(query: str) -> str:
     # Verwijder accenten (é → e, etc.)
     query = remove_accents(query)
 
-    # 1) Vervang eerst multi-word synoniemen (bijv. "french fries")
+    # 1) Vervang eerst multi-word synoniemen (bijv. "french fries", "cola zero")
+    #    Langste eerst zodat "patatje oorlog" voor "patatje" matcht
     phrase_synonyms = [
         (synonym, replacement)
         for synonym, replacement in SYNONYMS.items()
         if " " in synonym
     ]
+    # Track welke woorden door daadwerkelijke phrase-vervangingen zijn geproduceerd
+    phrase_result_words = set()
     for synonym, replacement in sorted(phrase_synonyms, key=lambda x: len(x[0]), reverse=True):
         pattern = r"(?<!\w)" + re.escape(synonym) + r"(?!\w)"
-        query = re.sub(pattern, replacement, query)
+        new_query = re.sub(pattern, replacement, query)
+        if new_query != query:
+            # Deze phrase-vervanging is daadwerkelijk uitgevoerd - bescherm alle resultaat-woorden
+            for word in replacement.split():
+                phrase_result_words.add(word)
+            query = new_query
 
-    # 2) Vervang losse woorden exact 1x per token (geen cascades zoals cola -> coca cola -> coca coca cola)
+    # 2) Vervang losse woorden exact 1x per token
+    #    Markeer tokens die al uit een phrase-vervanging kwamen om cascades te voorkomen
+    #    (bijv. "cola zero" → "coca cola zero", "cola" mag dan niet opnieuw vervangen worden)
     word_synonyms = {
         synonym: replacement
         for synonym, replacement in SYNONYMS.items()
         if " " not in synonym
     }
+
     tokens = query.split()
-    normalized_tokens = [word_synonyms.get(token, token) for token in tokens]
+    normalized_tokens = []
+    for token in tokens:
+        if token in phrase_result_words:
+            # Dit woord kwam uit een phrase-vervanging, niet opnieuw mappen
+            normalized_tokens.append(token)
+        else:
+            normalized_tokens.append(word_synonyms.get(token, token))
 
     return " ".join(normalized_tokens).strip()
 

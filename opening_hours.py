@@ -153,13 +153,12 @@ def is_pickup_time_valid(pickup_time: str, pickup_date: datetime = None) -> dict
             "reason": f"We sluiten om {hours['close'].strftime('%H:%M')}. Kunt u het eerder ophalen?"
         }
 
-    # Check of tijd niet in het verleden ligt
+    # Check of tijd niet in het verleden ligt (alleen voor vandaag)
     now = now_nl()
-    current_time = now.time()
-    if pickup_t < current_time:
+    if pickup_date.date() == now.date() and pickup_t < now.time():
         return {
             "valid": False,
-            "reason": f"Het is al {current_time.strftime('%H:%M')}. Kunt u een later tijdstip kiezen?"
+            "reason": f"Het is al {now.time().strftime('%H:%M')}. Kunt u een later tijdstip kiezen?"
         }
 
     return {
