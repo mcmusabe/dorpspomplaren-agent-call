@@ -3,9 +3,21 @@
     {
       "src": "webhook_order.py",
       "use": "@vercel/python"
+    },
+    {
+      "src": "kiosk/**",
+      "use": "@vercel/static"
     }
   ],
   "routes": [
+    {
+      "src": "/kiosk/(.*)",
+      "dest": "kiosk/$1"
+    },
+    {
+      "src": "/kiosk",
+      "dest": "kiosk/index.html"
+    },
     {
       "src": "/(.*)",
       "dest": "webhook_order.py"
