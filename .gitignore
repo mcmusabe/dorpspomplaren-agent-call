@@ -29,3 +29,4 @@ retell_config.json
 .DS_Store
 Thumbs.db
 
+.vercel

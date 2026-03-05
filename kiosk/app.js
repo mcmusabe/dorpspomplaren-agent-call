@@ -1,5 +1,5 @@
 /**
- * Connect-Smart Voice Kiosk
+ * De Dorpspomp & Dieks IJssalon - Voice Kiosk
  * VAPI Web SDK Integration - Script Tag Versie
  */
 
@@ -30,7 +30,7 @@ let vapiInitialized = false;
 let listenersAttached = false;
 const toolCallNameById = new Map();
 const priceLookupCache = new Map();
-const WEBHOOK_BASE_URL = 'https://dorpspomp-webhook-production.up.railway.app';
+const WEBHOOK_BASE_URL = 'https://dorpspomp-webhook.vercel.app';
 let currentVapiCallId = null;
 let cartSyncIntervalId = null;
 const CART_SYNC_INTERVAL_MS = 1200;
@@ -46,8 +46,6 @@ function setCurrentVapiCallId(callId) {
 
 async function syncCartFromServer() {
     if (!isCallActive || !currentVapiCallId) return;
-    if (currentOrder.length > 0) return;
-
     try {
         const response = await fetch(`${WEBHOOK_BASE_URL}/tools/get_cart`, {
             headers: {
@@ -117,8 +115,8 @@ function initVapi() {
 
         // Update UI
         addConnectionStatus('connected');
-        statusText.textContent = 'PLAATS JE BESTELLING ALS JE KLAAR BENT';
-        updateAssistantStatus('idle', 'Lisa is klaar');
+        statusText.textContent = 'DRUK OP DE KNOP OM TE BESTELLEN';
+        updateAssistantStatus('idle', 'Diek is klaar');
         vapiInitialized = true;
 
         console.log('VAPI initialized successfully');
@@ -158,7 +156,7 @@ function setupEventListeners() {
         clearOrder();
         startCartSync();
         addSystemMessage('Gesprek gestart...');
-        updateAssistantStatus('listening', 'Lisa luistert...');
+        updateAssistantStatus('listening', 'Diek luistert...');
     });
 
     // Call beëindigd
@@ -170,7 +168,7 @@ function setupEventListeners() {
         stopCartSync();
         updateUI('idle');
         addSystemMessage('Gesprek beëindigd');
-        updateAssistantStatus('idle', 'Lisa is klaar');
+        updateAssistantStatus('idle', 'Diek is klaar');
         updateMuteButton();
     });
 
@@ -185,7 +183,7 @@ function setupEventListeners() {
     vapi.on('speech-end', () => {
         console.log('User speech ended');
         waveform.classList.remove('active');
-        updateAssistantStatus('thinking', 'Lisa denkt na...');
+        updateAssistantStatus('thinking', 'Diek denkt na...');
     });
 
     // Volume niveau voor waveform
@@ -201,11 +199,16 @@ function setupEventListeners() {
     // Error handling
     vapi.on('error', (error) => {
         console.error('VAPI Error:', error);
-        // Niet als harde fout tonen in transcript; dit gaf veel ruis voor de klant.
-        isCallActive = false;
-        stopCartSync();
-        updateUI('idle');
-        updateAssistantStatus('idle', 'Lisa is klaar');
+        showToast('Er ging iets mis. Probeer het opnieuw.', 'error', 4000);
+        // Alleen terminal errors beëindigen de call
+        const errorCode = error?.code || error?.type || '';
+        if (errorCode === 'call-ended' || errorCode === 'transport-error' || !isCallActive) {
+            isCallActive = false;
+            stopCartSync();
+            updateUI('idle');
+            updateAssistantStatus('idle', 'Diek is klaar');
+            setBodyState('idle');
+        }
     });
 
     console.log('Event listeners setup complete');
@@ -357,6 +360,7 @@ function addItemToLocalCart(itemName, quantity) {
     
     // Update display
     renderOrderDisplay();
+    showToast(`${quantity}x ${itemName} toegevoegd!`, 'success', 2500);
     // Fallback: haal prijs direct op via webhook als VAPI result event ontbreekt
     void enrichLocalItemPrice(itemName);
     console.log('Cart updated:', currentOrder);
@@ -453,8 +457,8 @@ function renderOrderDisplay() {
     if (!orderItems || !orderTotal) return;
 
     if (currentOrder.length === 0) {
-        orderItems.innerHTML = '<li class="empty-order">Nog geen items</li>';
-        orderTotal.textContent = 'Totaal: €0,00';
+        orderItems.innerHTML = '<li class="empty-order"><span class="empty-icon">🛒</span><span>Uw bestelling verschijnt hier</span></li>';
+        orderTotal.textContent = '';
     } else {
         orderItems.innerHTML = currentOrder.map(item => {
             const priceDisplay = item.price > 0 
@@ -630,17 +634,17 @@ function handleFunctionCallResultMessage(message) {
 function handleConversationUpdate(message) {
     // Transcript events zijn al leidend; conversation-update zorgt anders voor duplicates.
     if (message.conversation && message.conversation.length > 0) {
-        updateAssistantStatus('speaking', 'Lisa spreekt...');
+        updateAssistantStatus('speaking', 'Diek spreekt...');
     }
 }
 
 function handleSpeechUpdate(message) {
     if (message.status === 'started' && message.role === 'assistant') {
         waveform.classList.add('active');
-        updateAssistantStatus('speaking', 'Lisa spreekt...');
+        updateAssistantStatus('speaking', 'Diek spreekt...');
     } else if (message.status === 'stopped') {
         waveform.classList.remove('active');
-        updateAssistantStatus('listening', 'Lisa luistert...');
+        updateAssistantStatus('listening', 'Diek luistert...');
     }
 }
 
@@ -681,8 +685,8 @@ async function startCall() {
         statusText.textContent = 'KON NIET VERBINDEN';
         updateAssistantStatus('error', 'Verbinding mislukt');
         setTimeout(() => {
-            statusText.textContent = 'PLAATS JE BESTELLING ALS JE KLAAR BENT';
-            updateAssistantStatus('idle', 'Lisa is klaar');
+            statusText.textContent = 'DRUK OP DE KNOP OM TE BESTELLEN';
+            updateAssistantStatus('idle', 'Diek is klaar');
         }, 3000);
     }
 }
@@ -759,7 +763,7 @@ function updateUI(state) {
         callButton.classList.remove('active');
         buttonIcon.textContent = '🎤';
         buttonText.textContent = 'START BESTELLING';
-        statusText.textContent = 'PLAATS JE BESTELLING ALS JE KLAAR BENT';
+        statusText.textContent = 'DRUK OP DE KNOP OM TE BESTELLEN';
         statusText.classList.remove('active');
         waveform.classList.remove('active');
 
@@ -773,6 +777,22 @@ function updateAssistantStatus(state, label) {
     assistantStatus.classList.remove('idle', 'listening', 'speaking', 'thinking', 'connecting', 'error');
     assistantStatus.classList.add(state);
     statusLabel.textContent = label;
+    setBodyState(state);
+}
+
+function setBodyState(state) {
+    document.body.className = document.body.className.replace(/\bstate-\w+/g, '').trim();
+    document.body.classList.add(`state-${state}`);
+}
+
+function showToast(message, type = 'info', durationMs = 3000) {
+    const container = document.getElementById('toastContainer');
+    if (!container) return;
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), durationMs);
 }
 
 function updateWaveform(volume) {
@@ -932,7 +952,7 @@ function addTranscriptMessage(text, role) {
     const messageEl = document.createElement('div');
     messageEl.className = `transcript-message ${role}`;
 
-    const label = role === 'user' ? 'Jij' : 'Lisa';
+    const label = role === 'user' ? 'Jij' : 'Diek';
     const icon = role === 'user' ? '👤' : '🤖';
 
     messageEl.innerHTML = `
@@ -956,7 +976,7 @@ function updatePartialTranscript(text, role) {
         transcriptBox.appendChild(partial);
     }
 
-    const label = role === 'user' ? 'Jij' : 'Lisa';
+    const label = role === 'user' ? 'Jij' : 'Diek';
     const icon = role === 'user' ? '👤' : '🤖';
 
     partial.innerHTML = `
@@ -995,18 +1015,24 @@ function updateOrderDisplay(items, total) {
     }
 
     if (currentOrder.length === 0) {
-        orderItems.innerHTML = '<li class="empty-order">Nog geen items</li>';
+        orderItems.innerHTML = '<li class="empty-order"><span class="empty-icon">🛒</span><span>Uw bestelling verschijnt hier</span></li>';
+        orderTotal.textContent = '';
     } else {
-        orderItems.innerHTML = currentOrder.map(item => `
+        orderItems.innerHTML = currentOrder.map(item => {
+            const priceDisplay = item.price > 0
+                ? formatEuroDisplay(item.price * item.quantity)
+                : '';
+            return `
             <li>
                 <span class="item-qty">${item.quantity}x</span>
                 <span class="item-name">${item.name}</span>
-                <span class="item-price">${formatEuroDisplay(item.price * item.quantity)}</span>
+                <span class="item-price">${priceDisplay}</span>
             </li>
-        `).join('');
+            `;
+        }).join('');
     }
 
-    orderTotal.textContent = `Totaal: ${formatEuroDisplay(orderTotalAmount)}`;
+    orderTotal.textContent = orderTotalAmount > 0 ? `Totaal: ${formatEuroDisplay(orderTotalAmount)}` : '';
 }
 
 // ============================================

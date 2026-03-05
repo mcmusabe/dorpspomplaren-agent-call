@@ -580,6 +580,11 @@ async def receive_order(request: Request):
         logger.error(f"❌ ERROR in receive_order: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/")
+def root():
+    return {"status": "ok", "service": "De Dorpspomp & Dieks IJssalon - Webhook API", "health": "/health"}
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "dorpspomp-order-webhook"}

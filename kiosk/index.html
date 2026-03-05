@@ -3,15 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Connect-Smart Voice Kiosk</title>
+    <title>De Dorpspomp & Dieks IJssalon - Bestel Kiosk</title>
     <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
-<body>
+<body class="state-idle">
     <div class="kiosk-container">
-        <!-- Header met logo -->
+        <!-- Header -->
         <header class="kiosk-header">
-            <img src="assets/logo.png" alt="Connect-Smart" class="logo">
+            <div class="logo-group">
+                <span class="logo-name">De Dorpspomp</span>
+                <span class="logo-sub">& Dieks IJssalon</span>
+            </div>
             <!-- Mute knop -->
             <button class="mute-button" id="muteButton" onclick="toggleMute()">
                 <span>🔊</span>
@@ -22,7 +25,7 @@
         <!-- Assistant Status Indicator -->
         <div class="assistant-status" id="assistantStatus">
             <span class="pulse-dot"></span>
-            <span id="statusLabel">Lisa is klaar</span>
+            <span id="statusLabel">Diek is klaar</span>
         </div>
 
         <!-- Waveform visualisatie -->
@@ -53,10 +56,10 @@
 
         <!-- Status tekst -->
         <div class="status-text" id="statusText">
-            PLAATS JE BESTELLING ALS JE KLAAR BENT
+            DRUK OP DE KNOP OM TE BESTELLEN
         </div>
 
-        <!-- Main content: Transcript en Order naast elkaar -->
+        <!-- Main content: Order panel (primary) en Transcript naast elkaar -->
         <div class="main-content">
             <!-- Transcriptie box -->
             <div class="transcript-container" id="transcriptContainer">
@@ -78,9 +81,12 @@
                     <span>Bestelling</span>
                 </div>
                 <ul class="order-items" id="orderItems">
-                    <li class="empty-order">Nog geen items</li>
+                    <li class="empty-order">
+                        <span class="empty-icon">🛒</span>
+                        <span>Uw bestelling verschijnt hier</span>
+                    </li>
                 </ul>
-                <div class="order-total" id="orderTotal">Totaal: €0.00</div>
+                <div class="order-total" id="orderTotal"></div>
             </div>
         </div>
 
@@ -92,20 +98,23 @@
 
         <!-- Promo banner -->
         <div class="promo-banner">
-            <div class="promo-label">PROBEER ONZE</div>
-            <div class="promo-title">FRIET SPECIAAL!</div>
+            <div class="promo-label">TIP VAN DIEK</div>
+            <div class="promo-title">Probeer onze huisgemaakte ijsjes!</div>
             <div class="promo-items">
+                <span class="promo-item">🍦</span>
                 <span class="promo-item">🍟</span>
-                <span class="promo-item">🍔</span>
-                <span class="promo-item">🥤</span>
+                <span class="promo-item">🧇</span>
             </div>
         </div>
 
+        <!-- Toast notificaties -->
+        <div class="toast-container" id="toastContainer"></div>
+
         <!-- Footer -->
         <footer class="kiosk-footer">
-            <span>Powered by</span>
-            <span class="footer-brand">Connect-Smart</span>
-            <span>integration & automation</span>
+            <span class="footer-brand">De Dorpspomp & Dieks IJssalon</span>
+            <span class="footer-divider">|</span>
+            <span>Laren</span>
         </footer>
     </div>
 
