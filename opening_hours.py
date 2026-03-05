@@ -33,7 +33,7 @@ def is_open_now() -> dict:
         next_open = get_next_opening()
         return {
             "open": False,
-            "reason": f"Vandaag ({translate_day(day)}) zijn we gesloten",
+            "reason": f"Vandaag zijn we gesloten. We zijn weer open op {next_open['day_nl']} om {next_open['time']}",
             "next_open": next_open
         }
 
@@ -41,7 +41,7 @@ def is_open_now() -> dict:
     if current_time < hours["open"]:
         return {
             "open": False,
-            "reason": f"We zijn nog niet open. We openen om {hours['open'].strftime('%H:%M')}",
+            "reason": f"Vandaag zijn we open vanaf {hours['open'].strftime('%H:%M')}",
             "opens_at": hours["open"].strftime("%H:%M")
         }
 
@@ -49,12 +49,13 @@ def is_open_now() -> dict:
         next_open = get_next_opening()
         return {
             "open": False,
-            "reason": f"We zijn al gesloten. We sloten om {hours['close'].strftime('%H:%M')}",
+            "reason": f"Vandaag zijn we gesloten. We zijn weer open op {next_open['day_nl']} om {next_open['time']}",
             "next_open": next_open
         }
 
     return {
         "open": True,
+        "reason": f"Vandaag zijn we open tot {hours['close'].strftime('%H:%M')}",
         "closes_at": hours["close"].strftime("%H:%M")
     }
 
@@ -62,9 +63,8 @@ def is_open_now() -> dict:
 def get_next_opening() -> dict:
     """Vind de volgende keer dat de zaak open gaat"""
     now = datetime.now()
+    day_names = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
     for i in range(1, 8):  # Check next 7 days
-        future_day = (now.day + i) % 7
-        day_names = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
         future_day_idx = (now.weekday() + i) % 7
         day_name = day_names[future_day_idx]
 
@@ -115,7 +115,7 @@ def is_pickup_time_valid(pickup_time: str, pickup_date: datetime = None) -> dict
         next_open = get_next_opening()
         return {
             "valid": False,
-            "reason": f"We zijn op {translate_day(day)} gesloten. We zijn weer open op {next_open['day_nl']} om {next_open['time']}"
+            "reason": f"Vandaag zijn we gesloten. We zijn weer open op {next_open['day_nl']} om {next_open['time']}"
         }
 
     # Parse pickup time

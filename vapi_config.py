@@ -31,7 +31,7 @@ BUSINESS_INFO = {
 VAPI_VOICE_CONFIG = {
     "provider": "11labs",
     "voiceId": "XJa38TJgDqYhj5mYbSJA",
-    "model": "eleven_turbo_v2_5",
+    "model": "eleven_multilingual_v2",
     "language": "nl",
     "stability": 0.72,
     "similarityBoost": 0.86,

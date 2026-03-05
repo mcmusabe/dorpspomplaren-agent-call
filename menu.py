@@ -326,12 +326,26 @@ def normalize_query(query: str) -> str:
     # Verwijder accenten (é → e, etc.)
     query = remove_accents(query)
 
-    # Check voor synoniemen
-    for synonym, replacement in SYNONYMS.items():
-        if synonym in query:
-            query = query.replace(synonym, replacement)
+    # 1) Vervang eerst multi-word synoniemen (bijv. "french fries")
+    phrase_synonyms = [
+        (synonym, replacement)
+        for synonym, replacement in SYNONYMS.items()
+        if " " in synonym
+    ]
+    for synonym, replacement in sorted(phrase_synonyms, key=lambda x: len(x[0]), reverse=True):
+        pattern = r"(?<!\w)" + re.escape(synonym) + r"(?!\w)"
+        query = re.sub(pattern, replacement, query)
 
-    return query
+    # 2) Vervang losse woorden exact 1x per token (geen cascades zoals cola -> coca cola -> coca coca cola)
+    word_synonyms = {
+        synonym: replacement
+        for synonym, replacement in SYNONYMS.items()
+        if " " not in synonym
+    }
+    tokens = query.split()
+    normalized_tokens = [word_synonyms.get(token, token) for token in tokens]
+
+    return " ".join(normalized_tokens).strip()
 
 
 def search_item(query: str):

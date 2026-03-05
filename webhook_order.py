@@ -90,6 +90,20 @@ cart_store_lock = threading.Lock()
 CART_EXPIRY_MINUTES = 60  # Carts ouder dan 60 min worden verwijderd
 _last_cleanup = datetime.now()
 
+# Velden die we nooit aan de spraakagent willen tonen
+VOICE_HIDDEN_PRICE_KEYS = {
+    "price",
+    "price_formatted",
+    "price_spoken",
+    "total",
+    "total_formatted",
+    "total_spoken",
+    "formatted_total",
+    "spoken_total",
+    "subtotal",
+    "price_per_item",
+}
+
 
 def _cleanup_old_carts():
     """Verwijder verlopen carts (ouder dan CART_EXPIRY_MINUTES)"""
@@ -228,6 +242,20 @@ def normalize_cart_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 def compute_cart_total(items: List[Dict[str, Any]]) -> float:
     """Bereken cart totaal met genormaliseerde waarden."""
     return sum(coerce_price(item.get("price", 0.0)) * coerce_quantity(item.get("qty", 1)) for item in items)
+
+
+def strip_voice_price_fields(value: Any) -> Any:
+    """Verwijder prijsgerelateerde velden uit payloads die naar VAPI teruggaan."""
+    if isinstance(value, dict):
+        sanitized = {}
+        for key, item in value.items():
+            if key in VOICE_HIDDEN_PRICE_KEYS:
+                continue
+            sanitized[key] = strip_voice_price_fields(item)
+        return sanitized
+    if isinstance(value, list):
+        return [strip_voice_price_fields(item) for item in value]
+    return value
 
 
 def sanitize_string(text: str, max_length: int = 200) -> str:
@@ -695,7 +723,7 @@ async def vapi_server_webhook(request: Request):
                     # Unknown tool
                     results.append({"toolCallId": tool_id, "result": {"error": f"Onbekende tool: {tool_name}"}})
             
-            return {"results": results}
+            return {"results": strip_voice_price_fields(results)}
         
         # Handle other event types
         elif message_type == "assistant-request":
@@ -1206,11 +1234,12 @@ def extract_vapi_tool_calls(body: Dict[str, Any]) -> list:
 
 def format_vapi_response(tool_call_id: str, result: Any) -> Dict:
     """Format response in VAPI format"""
+    safe_result = strip_voice_price_fields(result)
     return {
         "results": [
             {
                 "toolCallId": tool_call_id,
-                "result": result
+                "result": safe_result
             }
         ]
     }
@@ -1260,7 +1289,7 @@ async def vapi_search_menu(request: Request):
     tool_calls = extract_vapi_tool_calls(body)
 
     if not tool_calls:
-        return {"error": "No tool calls found"}
+        return {"results": []}
 
     # Verwerk ALLE tool calls, niet alleen de eerste
     results = []
@@ -1288,7 +1317,7 @@ async def vapi_search_menu(request: Request):
 
         results.append({"toolCallId": tool_call_id, "result": result})
 
-    return {"results": results}
+    return {"results": strip_voice_price_fields(results)}
 
 
 @app.post("/vapi/tools/add_to_cart")
@@ -1301,7 +1330,7 @@ async def vapi_add_to_cart(request: Request):
     tool_calls = extract_vapi_tool_calls(body)
 
     if not tool_calls:
-        return {"error": "No tool calls found"}
+        return {"results": []}
 
     # Cleanup oude carts periodiek
     _cleanup_old_carts()
@@ -1341,14 +1370,22 @@ async def vapi_add_to_cart(request: Request):
             final_name = item_name
             price = 0
 
-        # Add item met prijs (thread-safe)
+        # Add item met prijs (thread-safe) - merge duplicaten
         with cart_store_lock:
-            cart_store[call_id]["items"].append({
-                "name": final_name,
-                "qty": qty,
-                "price": price,
-                "notes": notes
-            })
+            found = False
+            for cart_item in cart_store[call_id]["items"]:
+                if cart_item["name"].lower() == final_name.lower():
+                    cart_item["qty"] = coerce_quantity(cart_item.get("qty", 1)) + qty
+                    found = True
+                    break
+
+            if not found:
+                cart_store[call_id]["items"].append({
+                    "name": final_name,
+                    "qty": qty,
+                    "price": price,
+                    "notes": notes
+                })
 
             # Bereken cart totaal
             cart_store[call_id]["items"] = normalize_cart_items(cart_store[call_id]["items"])
@@ -1375,7 +1412,7 @@ async def vapi_add_to_cart(request: Request):
         }
         results.append({"toolCallId": tool_call_id, "result": result})
 
-    return {"results": results}
+    return {"results": strip_voice_price_fields(results)}
 
 
 @app.post("/vapi/tools/get_cart")
@@ -1397,10 +1434,10 @@ async def vapi_get_cart(request: Request):
 
     result = {
         "items": cart["items"],
+        "count": len(cart["items"]),
         "total": cart_total,
-        "formatted_total": format_price(cart_total),
-        "total_spoken": format_price_spoken(cart_total),
-        "item_count": len(cart["items"])
+        "total_formatted": format_price(cart_total),
+        "total_spoken": format_price_spoken(cart_total)
     }
 
     return format_vapi_response(tool_call_id, result)
@@ -1416,7 +1453,7 @@ async def vapi_update_cart(request: Request):
     tool_calls = extract_vapi_tool_calls(body)
 
     if not tool_calls:
-        return {"error": "No tool calls found"}
+        return {"results": []}
 
     tool_call = tool_calls[0]
     tool_call_id = tool_call.get("id", "unknown")
@@ -1459,7 +1496,7 @@ async def vapi_remove_from_cart(request: Request):
     tool_calls = extract_vapi_tool_calls(body)
 
     if not tool_calls:
-        return {"error": "No tool calls found"}
+        return {"results": []}
 
     tool_call = tool_calls[0]
     tool_call_id = tool_call.get("id", "unknown")
@@ -1501,7 +1538,7 @@ async def vapi_check_pickup_time(request: Request):
     tool_calls = extract_vapi_tool_calls(body)
 
     if not tool_calls:
-        return {"error": "No tool calls found"}
+        return {"results": []}
 
     tool_call = tool_calls[0]
     tool_call_id = tool_call.get("id", "unknown")
@@ -1535,6 +1572,7 @@ async def vapi_get_hours(request: Request):
         "currently_open": status.get("open", False),
         "status_message": status.get("reason", "Open"),
         "closes_at": status.get("closes_at"),
+        "opens_at": status.get("opens_at"),
         "next_open": status.get("next_open")
     }
 
@@ -1551,7 +1589,7 @@ async def vapi_handoff(request: Request):
     tool_calls = extract_vapi_tool_calls(body)
 
     if not tool_calls:
-        return {"error": "No tool calls found"}
+        return {"results": []}
 
     tool_call = tool_calls[0]
     tool_call_id = tool_call.get("id", "unknown")
@@ -1581,7 +1619,7 @@ async def vapi_receive_order(request: Request):
     logger.info(f"[VAPI] Raw body: {json.dumps(body, indent=2, ensure_ascii=False)}")
 
     if not tool_calls:
-        return {"error": "No tool calls found"}
+        return {"results": []}
 
     tool_call = tool_calls[0]
     tool_call_id = tool_call.get("id", "unknown")
